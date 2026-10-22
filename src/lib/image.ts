@@ -24,12 +24,19 @@ export const PREVIEW_MAX_DIMENSION = 1800
 
 const FONT_STACK = '"Segoe UI", "Inter", system-ui, -apple-system, sans-serif'
 
+/** iPhone menyimpan foto sebagai HEIC; Chrome/Firefox tidak punya decoder HEVC. */
+function isHeifFile(file: File): boolean {
+  return /hei[cf]/i.test(file.type) || /\.hei[cf]$/i.test(file.name)
+}
+
 /**
  * Decode a user file into a drawable source. Prefers createImageBitmap because
  * it applies EXIF orientation ("from-image") and decodes off the main thread.
  * Falls back to an <img> element when the browser refuses the file.
  */
 export async function decodeImageFile(file: File): Promise<DecodedImage> {
+  const heif = isHeifFile(file)
+
   if (typeof createImageBitmap === 'function') {
     try {
       const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' })
@@ -54,7 +61,14 @@ export async function decodeImageFile(file: File): Promise<DecodedImage> {
   try {
     await new Promise<void>((resolve, reject) => {
       image.onload = () => resolve()
-      image.onerror = () => reject(new Error('Format gambar ini tidak didukung browser Anda.'))
+      image.onerror = () =>
+        reject(
+          new Error(
+            heif
+              ? 'Foto HEIC/HEIF tidak didukung browser ini. Pilih JPG/PNG, atau buka di Safari iPhone terbaru.'
+              : 'Format gambar ini tidak didukung browser Anda.',
+          ),
+        )
       image.src = url
     })
 
@@ -190,7 +204,12 @@ export function canvasToBlob(
     canvas.toBlob(
       (blob) => {
         if (blob) resolve(blob)
-        else reject(new Error('Browser gagal meng-encode gambar ini.'))
+        else
+          reject(
+            new Error(
+              'Browser gagal meng-encode gambar ini. Coba format JPEG/PNG atau gambar dengan dimensi lebih kecil.',
+            ),
+          )
       },
       mimeType,
       quality,

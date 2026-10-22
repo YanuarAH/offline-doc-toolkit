@@ -48,6 +48,31 @@ export const DIMENSION_STEP = 0.85
 const MAX_DIMENSION_ATTEMPTS = 24
 const MIN_SIDE = 32
 
+// Safari/iOS membatasi luas canvas sekitar 16,7 juta piksel. Tanpa batas ini,
+// foto 24/48 MP dari kamera iPhone menghasilkan canvas kosong atau toBlob null.
+const SAFARI_CANVAS_MAX_PIXELS = 16_000_000
+const SAFARI_CANVAS_MAX_SIDE = 4096
+
+function isSafariOrIOS(): boolean {
+  if (typeof navigator === 'undefined') return false
+  const userAgent = navigator.userAgent
+  const isIOS =
+    /iPad|iPhone|iPod/.test(userAgent) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+  const isSafari =
+    /Safari/i.test(userAgent) &&
+    !/Chrome|CriOS|Chromium|Edg|OPR|Android/i.test(userAgent)
+  return isIOS || isSafari
+}
+
+export function initialCanvasScale(width: number, height: number): number {
+  if (!isSafariOrIOS()) return 1
+  const areaScale = Math.sqrt(SAFARI_CANVAS_MAX_PIXELS / Math.max(1, width * height))
+  const sideScale = SAFARI_CANVAS_MAX_SIDE / Math.max(width, height)
+  return Math.min(1, areaScale, sideScale)
+}
+
+
 function drawToCanvas(
   source: CanvasImageSource,
   width: number,
@@ -103,7 +128,7 @@ export async function compressImage(
   const target =
     options.targetBytes !== null && options.targetBytes > 0 ? options.targetBytes : null
 
-  let scale = 1
+  let scale = initialCanvasScale(image.width, image.height)
   let passes = 0
   let lastAttempt: CompressResult | null = null
 
@@ -117,78 +142,85 @@ export async function compressImage(
       options.format === 'png' ? null : '#ffffff',
     )
 
-    if (target === null) {
-      const quality = clamp(options.quality ?? 0.82, MIN_QUALITY, 1)
-      const blob = await encodeCanvas(canvas, mime, quality)
-      return {
-        blob,
-        width,
-        height,
-        quality,
-        scale,
-        passes: passes + 1,
-        reachedTarget: true,
-      }
-    }
-
-    if (options.format === 'png') {
-      const blob = await encodeCanvas(canvas, mime)
-      passes += 1
-      lastAttempt = {
-        blob,
-        width,
-        height,
-        quality: 1,
-        scale,
-        passes,
-        reachedTarget: blob.size <= target,
-      }
-      if (lastAttempt.reachedTarget) return lastAttempt
-    } else {
-      let low = MIN_QUALITY
-      let high = MAX_QUALITY
-      let bestBlob: Blob | null = null
-      let bestQuality = MIN_QUALITY
-
-      for (let step = 0; step < BINARY_SEARCH_STEPS; step += 1) {
-        const quality = (low + high) / 2
+    try {
+      if (target === null) {
+        const quality = clamp(options.quality ?? 0.82, MIN_QUALITY, 1)
         const blob = await encodeCanvas(canvas, mime, quality)
-        passes += 1
-
-        if (blob.size <= target) {
-          bestBlob = blob
-          bestQuality = quality
-          low = quality
-        } else {
-          high = quality
-        }
-      }
-
-      if (bestBlob) {
         return {
-          blob: bestBlob,
+          blob,
           width,
           height,
-          quality: bestQuality,
+          quality,
           scale,
-          passes,
+          passes: passes + 1,
           reachedTarget: true,
         }
       }
 
-      // Explicit floor check at exactly 0.10 before giving up on this size.
-      const floorBlob = await encodeCanvas(canvas, mime, MIN_QUALITY)
-      passes += 1
-      lastAttempt = {
-        blob: floorBlob,
-        width,
-        height,
-        quality: MIN_QUALITY,
-        scale,
-        passes,
-        reachedTarget: floorBlob.size <= target,
+      if (options.format === 'png') {
+        const blob = await encodeCanvas(canvas, mime)
+        passes += 1
+        lastAttempt = {
+          blob,
+          width,
+          height,
+          quality: 1,
+          scale,
+          passes,
+          reachedTarget: blob.size <= target,
+        }
+        if (lastAttempt.reachedTarget) return lastAttempt
+      } else {
+        let low = MIN_QUALITY
+        let high = MAX_QUALITY
+        let bestBlob: Blob | null = null
+        let bestQuality = MIN_QUALITY
+
+        for (let step = 0; step < BINARY_SEARCH_STEPS; step += 1) {
+          const quality = (low + high) / 2
+          const blob = await encodeCanvas(canvas, mime, quality)
+          passes += 1
+
+          if (blob.size <= target) {
+            bestBlob = blob
+            bestQuality = quality
+            low = quality
+          } else {
+            high = quality
+          }
+        }
+
+        if (bestBlob) {
+          return {
+            blob: bestBlob,
+            width,
+            height,
+            quality: bestQuality,
+            scale,
+            passes,
+            reachedTarget: true,
+          }
+        }
+
+        // Explicit floor check at exactly 0.10 before giving up on this size.
+        const floorBlob = await encodeCanvas(canvas, mime, MIN_QUALITY)
+        passes += 1
+        lastAttempt = {
+          blob: floorBlob,
+          width,
+          height,
+          quality: MIN_QUALITY,
+          scale,
+          passes,
+          reachedTarget: floorBlob.size <= target,
+        }
+        if (lastAttempt.reachedTarget) return lastAttempt
       }
-      if (lastAttempt.reachedTarget) return lastAttempt
+    } finally {
+      // iOS menahan memori canvas sampai dimensinya di-reset. Ini penting saat
+      // memproses banyak foto secara berurutan di HP.
+      canvas.width = 0
+      canvas.height = 0
     }
 
     if (Math.min(width, height) <= MIN_SIDE) break

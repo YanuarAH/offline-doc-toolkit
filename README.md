@@ -246,6 +246,13 @@ vercel.json                    # header Content-Type application/wasm
   interaktif dari sumber tidak ikut tersalin.
 - Signature ditempel satu halaman per ekspor (bisa diulang untuk halaman lain).
 - Jumlah halaman dibatasi oleh memori browser; thumbnail disimpan sebagai data URL.
+- Di Safari/iOS, encoding WebP lewat canvas tidak didukung. Aplikasi otomatis
+  memakai JPEG dan menonaktifkan pilihan WebP; gunakan JPEG atau PNG.
+- Foto iPhone di atas ±16 MP otomatis diperkecil sebelum digambar ke canvas
+  (batas canvas Safari). Foto HEIC memerlukan Safari yang mendukung HEIC;
+  Chrome/Firefox akan menampilkan pesan agar memakai JPG/PNG.
+- Menyimpan hasil WebP/PNG lewat aplikasi Photos dapat mengonversinya menjadi
+  JPEG. Untuk mempertahankan format, unduh dan buka dari aplikasi Files.
 
 ## Kredit & lisensi
 

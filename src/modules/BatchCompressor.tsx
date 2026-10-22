@@ -88,7 +88,7 @@ function uniqueFilename(desired: string, used: Set<string>): string {
 
 export function BatchCompressor() {
   const [items, setItems] = useState<BatchItem[]>([])
-  const [format, setFormat] = useState<OutputFormat>('webp')
+  const [format, setFormat] = useState<OutputFormat>('jpeg')
   const [mode, setMode] = useState<SizeMode>('target')
   const [targetKb, setTargetKb] = useState('200')
   const [quality, setQuality] = useState(0.82)
@@ -97,12 +97,13 @@ export function BatchCompressor() {
   const [zipProgress, setZipProgress] = useState(0)
   const [progress, setProgress] = useState({ done: 0, total: 0 })
   const [notice, setNotice] = useState<Notice | null>(null)
-  const [webpSupported, setWebpSupported] = useState(true)
+  const [webpSupported, setWebpSupported] = useState<boolean | null>(null)
 
   const addInputRef = useRef<HTMLInputElement>(null)
   const urlsRef = useRef<Set<string>>(new Set())
   const outUrlByItemRef = useRef<Map<string, string>>(new Map())
   const mountedRef = useRef(true)
+  const formatTouchedRef = useRef(false)
 
   useEffect(() => {
     let cancelled = false
@@ -110,9 +111,10 @@ export function BatchCompressor() {
     void isWebpSupported().then((supported) => {
       if (cancelled) return
       setWebpSupported(supported)
-      if (!supported) {
-        setFormat((current) => (current === 'webp' ? 'jpeg' : current))
-      }
+      // Jangan menimpa pilihan eksplisit user. Mulai dari JPEG yang universal,
+      // lalu naik ke WebP hanya jika browser mendukung dan user belum memilih.
+      if (supported && !formatTouchedRef.current) setFormat('webp')
+      if (!supported) setFormat((current) => (current === 'webp' ? 'jpeg' : current))
     })
 
     return () => {
@@ -226,8 +228,21 @@ export function BatchCompressor() {
     )
   }
 
+  function changeFormat(next: OutputFormat) {
+    formatTouchedRef.current = true
+    setFormat(next)
+  }
+
   async function compressAll() {
     if (busy || items.length === 0) return
+
+    if (format === 'webp' && webpSupported !== true) {
+      setNotice({
+        tone: 'error',
+        text: 'Browser ini belum mendukung encode WebP. Pilih JPEG atau PNG.',
+      })
+      return
+    }
 
     let targetBytes: number | null = null
     if (mode === 'target') {
@@ -406,18 +421,31 @@ export function BatchCompressor() {
             <span className="eyebrow">Format output</span>
             <Segmented
               value={format}
-              onChange={setFormat}
+              onChange={changeFormat}
               options={[
                 {
                   value: 'webp',
                   label: 'WebP',
-                  hint: webpSupported ? 'Paling kecil' : 'Tidak didukung',
-                  disabled: !webpSupported,
+                  hint:
+                    webpSupported === null
+                      ? 'Memeriksa…'
+                      : webpSupported
+                        ? 'Paling kecil'
+                        : 'Tidak didukung',
+                  disabled: webpSupported !== true,
                 },
                 { value: 'jpeg', label: 'JPEG', hint: 'Universal' },
                 { value: 'png', label: 'PNG', hint: 'Lossless' },
               ]}
             />
+            <p className="font-mono text-[9px] tracking-wide text-ink-500">
+              Output: {FORMAT_LABEL[format]} (.{FORMAT_EXT[format]})
+            </p>
+            {webpSupported === false ? (
+              <p className="text-[9.5px] leading-relaxed text-warn/90">
+                Browser ini tidak mendukung encode WebP. Pilih JPEG atau PNG.
+              </p>
+            ) : null}
           </div>
 
           <div className="space-y-2">
