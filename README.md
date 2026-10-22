@@ -155,7 +155,14 @@ berada di background atau lingkungan headless.
 ### Signature Stamper
 
 - Upload PDF → pilih halaman lewat dropdown/prev-next.
-- Upload tanda tangan **PNG transparan** (JPG juga didukung). Gambar
+- **Interactive Signature Pad**: coret langsung dengan mouse atau jari pada
+  kotak putih responsif (canvas 800×400, tampil maksimal 400×200).
+  - Tombol **Hapus / Clear** mereset coretan.
+  - Warna tinta **Hitam** atau **Biru gelap**.
+  - **Terapkan Tanda Tangan ke PDF** memotong area transparan di sekitar
+    coretan dan mengubahnya menjadi PNG transparan lewat
+    `canvas.toDataURL('image/png')`.
+- Alternatif: upload tanda tangan **PNG transparan** (JPG juga didukung). Gambar
   dinormalisasi dan dibatasi 1600px; alpha PNG dipertahankan.
 - Tanda tangan bisa **digeser langsung** di atas preview, di-resize dari sudut,
   atau diatur lewat slider **X, Y, Lebar, Tinggi** dengan opsi kunci rasio.
@@ -196,6 +203,7 @@ src/
     Sidebar.tsx                # 4 modul + privacy card
     Dropzone.tsx               # drag-and-drop single/multi file
     Controls.tsx               # segmented control + slider
+    SignaturePad.tsx           # canvas tanda tangan (mouse + touch)
   lib/
     image.ts                   # decode EXIF-aware, watermark canvas, toBlob
     compress.ts                # binary search 7 iterasi + downscale 0.85×

@@ -22,6 +22,7 @@ import {
   Upload,
 } from 'lucide-react'
 import { Dropzone } from '../components/Dropzone'
+import { SignaturePad, type AppliedSignature } from '../components/SignaturePad'
 import { SliderField } from '../components/Controls'
 import {
   destroyPdfDocument,
@@ -367,6 +368,49 @@ export function SignatureStamper() {
     setExportInfo(null)
   }
 
+  async function applyPadSignature(payload: AppliedSignature) {
+    setLoadingSignature(true)
+    setNotice(null)
+    setExportInfo(null)
+
+    try {
+      const response = await fetch(payload.dataUrl)
+      const blob = await response.blob()
+      const bytes = new Uint8Array(await blob.arrayBuffer())
+      const url = URL.createObjectURL(blob)
+
+      if (signatureUrlRef.current) URL.revokeObjectURL(signatureUrlRef.current)
+      signatureUrlRef.current = url
+
+      const nextSignature: SignatureFile = {
+        name: payload.name,
+        size: blob.size,
+        bytes,
+        url,
+        type: 'png',
+        width: payload.width,
+        height: payload.height,
+      }
+
+      setSignature(nextSignature)
+      setPlacement((previous) => {
+        const nextWidth = clamp(previous.w, 8, 80)
+        const nextHeight = aspectLockedRef.current
+          ? heightForWidth(nextWidth, pageSize, nextSignature)
+          : previous.h
+        return clampPlacement({
+          ...previous,
+          w: nextWidth,
+          h: nextHeight,
+        })
+      })
+    } catch (padError) {
+      if (mountedRef.current) setNotice(errorMessage(padError))
+    } finally {
+      if (mountedRef.current) setLoadingSignature(false)
+    }
+  }
+
   function resetPlacement() {
     if (!signature || !pageSize) {
       setPlacement(DEFAULT_PLACEMENT)
@@ -572,8 +616,8 @@ export function SignatureStamper() {
               <div>
                 <h2 className="text-[13px] font-semibold text-white">Signature Stamper</h2>
                 <p className="mt-1 text-[11px] leading-relaxed text-ink-400">
-                  Tempel tanda tangan PNG transparan tepat di posisi yang Anda
-                  inginkan, lalu unduh PDF final.
+                  Coret tanda tangan langsung dengan mouse atau jari, atau upload
+                  PNG transparan. Atur posisi dan ukurannya, lalu unduh PDF final.
                 </p>
               </div>
             </div>
@@ -581,7 +625,7 @@ export function SignatureStamper() {
             <ol className="space-y-3">
               {[
                 ['01', 'Upload PDF', 'Semua halaman dirender lokal di canvas.'],
-                ['02', 'Pilih halaman & posisi', 'Geser tanda tangan, atur lebar/tinggi dan koordinat.'],
+                ['02', 'Coret / upload & atur', 'Gambar langsung atau upload PNG; geser dan atur ukuran.'],
                 ['03', 'Unduh PDF', 'pdf-lib menanamkan gambar tanda tangan ke halaman.'],
               ].map(([step, title, text]) => (
                 <li key={step} className="flex gap-3">
@@ -804,6 +848,25 @@ export function SignatureStamper() {
           <div className="space-y-4 p-4">
             {!signature ? (
               <>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="eyebrow">Coret langsung</p>
+                    <span className="font-mono text-[8.5px] tracking-wide text-ink-500 uppercase">
+                      Mouse / sentuh
+                    </span>
+                  </div>
+                  <SignaturePad
+                    disabled={busy || rendering}
+                    onApply={(payload) => void applyPadSignature(payload)}
+                  />
+                </div>
+
+                <div className="flex items-center gap-2 text-[9px] tracking-wide text-ink-600 uppercase">
+                  <span className="h-px flex-1 bg-white/[0.06]" />
+                  atau upload gambar
+                  <span className="h-px flex-1 bg-white/[0.06]" />
+                </div>
+
                 <Dropzone
                   compact
                   accept="image/png,image/jpeg,.png,.jpg,.jpeg"
@@ -953,7 +1016,7 @@ export function SignatureStamper() {
             ) : (
               <>
                 <Download size={14} />
-                Stempel & unduh PDF
+                Download PDF Bertanda Tangan
               </>
             )}
           </button>
