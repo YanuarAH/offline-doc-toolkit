@@ -1,8 +1,29 @@
 # LocalKit — Local-First Document & Image Toolkit
 
+[![Vite](https://img.shields.io/badge/Vite-8-646CFF?logo=vite&logoColor=white)](https://vite.dev)
+[![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=111827)](https://react.dev)
+[![TypeScript](https://img.shields.io/badge/TypeScript-6-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
+[![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-4-06B6D4?logo=tailwindcss&logoColor=white)](https://tailwindcss.com)
+[![PWA](https://img.shields.io/badge/PWA-offline--ready-5EEAD4)](https://web.dev/progressive-web-apps/)
+[![Ghostscript WASM](https://img.shields.io/badge/Ghostscript-WASM-8B5CF6)](https://github.com/jsscheller/ghostscript-wasm)
+
 Swiss army knife untuk dokumen dan gambar yang berjalan **100% di browser**.
 Tidak ada backend, tidak ada upload, tidak ada telemetry. File sensitif seperti
 foto KTP dan PDF bertanda tangan tetap berada di memori perangkat Anda.
+
+> **Local-first by design.** Semua pemrosesan — watermark, kompresi gambar,
+> PDF merge/split, kompresi Ghostscript, sampai tanda tangan — terjadi di
+> perangkat Anda. Service worker menyimpan aset aplikasi agar tetap bisa
+> dipakai offline setelah kunjungan pertama.
+
+## Kenapa LocalKit?
+
+- **Privasi penuh** — tidak ada endpoint upload, API key, atau analytics.
+- **Bisa offline** — PWA + Workbox mem-precache bundle, worker pdf.js, dan
+  mesin Ghostscript WASM.
+- **Tanpa install** — cukup buka di browser modern (Chrome, Edge, Firefox, Safari).
+- **Dokumen tetap utuh** — kompresi PDF memakai Ghostscript `pdfwrite`, bukan
+  rasterisasi halaman, sehingga teks dan vektor tetap tajam.
 
 ## Modul
 
@@ -27,15 +48,38 @@ foto KTP dan PDF bertanda tangan tetap berada di memori perangkat Anda.
 - **JSZip** — unduhan batch `.zip` pada Modul 2.
 - **vite-plugin-pwa** (Workbox) — service worker, manifest, installable, offline.
 
-## Menjalankan
+## Mulai cepat
+
+Prasyarat: **Node.js 20+** dan npm.
 
 ```bash
+git clone https://github.com/YanuarAH/offline-doc-toolkit.git
+cd offline-doc-toolkit
 npm install
 npm run dev      # http://localhost:5173
+```
+
+`npm install` menjalankan `scripts/copy-ghostscript.mjs` untuk menyalin
+`gs.js` dan `gs.wasm` dari paket npm ke `public/wasm/`. Script yang sama juga
+berjalan otomatis sebelum `npm run dev` dan `npm run build`.
+
+Perintah lain:
+
+```bash
 npm run build    # type-check + production build ke dist/
 npm run preview  # cek hasil build
 npm run lint     # oxlint src
 ```
+
+## Deploy ke Vercel
+
+1. Import repo ini di Vercel.
+2. Framework preset: **Vite**; build command: `npm run build`; output: `dist`.
+3. Deploy. `vercel.json` sudah mengatur `Content-Type: application/wasm` untuk
+   `/wasm/gs.wasm`, dan `postinstall`/`prebuild` menyalin aset Ghostscript
+   secara otomatis.
+
+Tidak ada environment variable atau server yang dibutuhkan.
 
 ## PDF.js offline (tanpa CDN)
 
@@ -202,3 +246,15 @@ vercel.json                    # header Content-Type application/wasm
   interaktif dari sumber tidak ikut tersalin.
 - Signature ditempel satu halaman per ekspor (bisa diulang untuk halaman lain).
 - Jumlah halaman dibatasi oleh memori browser; thumbnail disimpan sebagai data URL.
+
+## Kredit & lisensi
+
+- **Ghostscript** — mesin kompresi PDF, lisensi **AGPL-3.0**. Berkas lisensi
+  disertakan di [`public/wasm/LICENSE`](public/wasm/LICENSE).
+- **pdf.js** (Mozilla) — Apache-2.0; lisensi tersedia di `public/pdfjs/LICENSE`.
+- **pdf-lib**, **JSZip**, **@dnd-kit**, **Lucide**, **Tailwind CSS**, dan
+  **Vite** — mengikuti lisensi masing-masing proyek.
+
+Proyek ini tidak mengirim file pengguna ke mana pun. Jika Anda memodifikasi dan
+mendistribusikan ulang aplikasi ini, perhatikan kewajiban lisensi Ghostscript
+(AGPL-3.0).
