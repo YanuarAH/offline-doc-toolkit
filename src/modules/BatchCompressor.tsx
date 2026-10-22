@@ -29,6 +29,7 @@ import {
   type OutputFormat,
 } from '../lib/compress'
 import { decodeImageFile } from '../lib/image'
+import { partitionImageFiles } from '../lib/imageFormat'
 import {
   cn,
   compactDay,
@@ -56,13 +57,6 @@ interface BatchItem {
 interface Notice {
   tone: 'success' | 'error'
   text: string
-}
-
-function isImageFile(file: File): boolean {
-  return (
-    file.type.startsWith('image/') ||
-    /\.(png|jpe?g|webp|avif|gif|bmp|heic|heif)$/i.test(file.name)
-  )
 }
 
 function uniqueFilename(desired: string, used: Set<string>): string {
@@ -170,12 +164,15 @@ export function BatchCompressor() {
     urlsRef.current.delete(url)
   }
 
-  function addFiles(files: File[]) {
+  async function addFiles(files: File[]) {
     if (busy) return
-    const images = files.filter(isImageFile)
+    const { images, rejected } = await partitionImageFiles(files)
 
     if (images.length === 0) {
-      setNotice({ tone: 'error', text: 'Pilih file gambar (JPG, PNG, WebP, atau AVIF).' })
+      setNotice({
+        tone: 'error',
+        text: 'Pilih file gambar (JPG, PNG, WebP, HEIC, atau AVIF).',
+      })
       return
     }
 
@@ -193,10 +190,10 @@ export function BatchCompressor() {
     setItems((previous) => [...previous, ...additions])
     setNotice(null)
 
-    if (images.length < files.length) {
+    if (rejected.length > 0) {
       setNotice({
         tone: 'error',
-        text: `${files.length - images.length} file diabaikan karena bukan gambar.`,
+        text: `${rejected.length} file diabaikan karena bukan gambar.`,
       })
     }
   }
@@ -255,6 +252,7 @@ export function BatchCompressor() {
 
     const snapshot = items.slice()
     let failures = 0
+    let firstFailure: string | null = null
 
     setBusy(true)
     setNotice(null)
@@ -308,10 +306,12 @@ export function BatchCompressor() {
         })
       } catch (compressionError) {
         failures += 1
+        const message = errorMessage(compressionError)
+        if (firstFailure === null) firstFailure = message
         if (mountedRef.current) {
           updateItem(item.id, {
             status: 'error',
-            error: errorMessage(compressionError),
+            error: message,
           })
         }
       }
@@ -325,9 +325,13 @@ export function BatchCompressor() {
     setBusy(false)
 
     if (failures > 0) {
+      const detail = firstFailure
       setNotice({
         tone: 'error',
-        text: `${failures} gambar gagal dikompres. Coba format lain atau periksa file tersebut.`,
+        text:
+          failures === 1 && detail
+            ? `1 gambar gagal dikompres. ${detail}`
+            : `${failures} gambar gagal dikompres. Contoh penyebab: ${detail ?? 'format tidak didukung.'}`,
       })
     }
   }
@@ -595,7 +599,7 @@ export function BatchCompressor() {
                 onFiles={addFiles}
                 title="Tarik banyak gambar ke sini"
                 subtitle="Atau klik untuk memilih beberapa file sekaligus"
-                hint="JPG, PNG, WebP, AVIF · kompres batch tanpa upload"
+                hint="JPG, PNG, WebP, HEIC, AVIF · kompres batch tanpa upload"
               />
             </div>
           </div>

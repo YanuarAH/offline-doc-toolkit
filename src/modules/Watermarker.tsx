@@ -30,6 +30,7 @@ import {
   type WatermarkSettings,
 } from '../lib/image'
 import { canvasToBlob } from '../lib/image'
+import { partitionImageFiles } from '../lib/imageFormat'
 import {
   cn,
   compactDay,
@@ -67,13 +68,6 @@ function defaultSettings(): WatermarkSettings {
     spacing: 3,
     color: '#ef4444',
   }
-}
-
-function isImageFile(file: File): boolean {
-  return (
-    file.type.startsWith('image/') ||
-    /\.(png|jpe?g|webp|avif|gif|bmp|heic|heif)$/i.test(file.name)
-  )
 }
 
 export function Watermarker() {
@@ -124,8 +118,9 @@ export function Watermarker() {
   }, [doc, settings])
 
   async function handleIncomingFile(file: File) {
-    if (!isImageFile(file)) {
-      setError('File harus berupa gambar (JPG, PNG, WebP, atau AVIF).')
+    const { images } = await partitionImageFiles([file])
+    if (images.length === 0) {
+      setError('File harus berupa gambar (JPG, PNG, WebP, HEIC, atau AVIF).')
       return
     }
 
@@ -238,7 +233,7 @@ export function Watermarker() {
                 }}
                 title="Tarik foto KTP atau dokumen ke sini"
                 subtitle="Atau klik untuk memilih file dari perangkat"
-                hint="JPG, PNG, WebP, AVIF · diproses lokal, tanpa upload"
+                hint="JPG, PNG, WebP, HEIC, AVIF · diproses lokal, tanpa upload"
                 busy={loading}
               />
               {error ? (

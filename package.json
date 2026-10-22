@@ -18,6 +18,7 @@
     "@dnd-kit/sortable": "^10.0.0",
     "@jspawn/ghostscript-wasm": "^0.0.2",
     "jszip": "^3.10.2",
+    "libheif-js": "^1.23.5",
     "lucide-react": "^1.61.0",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^6.4.299",

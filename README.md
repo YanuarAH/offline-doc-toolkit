@@ -256,9 +256,14 @@ vercel.json                    # header Content-Type application/wasm
 - Jumlah halaman dibatasi oleh memori browser; thumbnail disimpan sebagai data URL.
 - Di Safari/iOS, encoding WebP lewat canvas tidak didukung. Aplikasi otomatis
   memakai JPEG dan menonaktifkan pilihan WebP; gunakan JPEG atau PNG.
-- Foto iPhone di atas ±16 MP otomatis diperkecil sebelum digambar ke canvas
-  (batas canvas Safari). Foto HEIC memerlukan Safari yang mendukung HEIC;
-  Chrome/Firefox akan menampilkan pesan agar memakai JPG/PNG.
+- Foto iPhone/Android berformat HEIC/HEIF didekode lewat libheif (WebAssembly)
+  yang berjalan lokal di browser, jadi tetap bisa dikompres meski browser tidak
+  punya dekoder HEVC bawaan. Unduhan wasm ±2 MB hanya terjadi saat ada file HEIC.
+- Foto di atas ±16 MP di HP/tablet otomatis diperkecil sebelum digambar ke canvas
+  (batas memori canvas). Di desktop batasnya ±48 MP. Jika browser tetap menolak
+  meng-encode, ukuran canvas diturunkan otomatis sampai berhasil.
+- Foto beresolusi ekstrem (mis. 108 MP) bisa tetap gagal didekode di HP kelas
+  bawah; aplikasi menampilkan resolusi foto dan saran memakai file lebih kecil.
 - Menyimpan hasil WebP/PNG lewat aplikasi Photos dapat mengonversinya menjadi
   JPEG. Untuk mempertahankan format, unduh dan buka dari aplikasi Files.
 
@@ -266,6 +271,9 @@ vercel.json                    # header Content-Type application/wasm
 
 - **Ghostscript** — mesin kompresi PDF, lisensi **AGPL-3.0**. Berkas lisensi
   disertakan di [`public/wasm/LICENSE`](public/wasm/LICENSE).
+- **libheif** (lewat paket `libheif-js`) — dekoder HEIC/HEIF berbasis WebAssembly,
+  lisensi **LGPL-3.0**. Lisensi asli tersedia di
+  `node_modules/libheif-js/LICENSE` setelah `npm install`.
 - **pdf.js** (Mozilla) — Apache-2.0; lisensi tersedia di `public/pdfjs/LICENSE`.
 - **pdf-lib**, **JSZip**, **@dnd-kit**, **Lucide**, **Tailwind CSS**, dan
   **Vite** — mengikuti lisensi masing-masing proyek.

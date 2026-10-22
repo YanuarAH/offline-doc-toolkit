@@ -18,7 +18,7 @@ export function Dropzone({
   onFiles,
   title,
   subtitle,
-  hint = 'JPG, PNG, WebP, AVIF · maksimal 40 MB per file',
+  hint = 'JPG, PNG, WebP, HEIC, AVIF · maksimal 40 MB per file',
   accept = 'image/*',
   multiple = false,
   icon,

@@ -1,4 +1,13 @@
-import { clamp } from './format'
+import { clamp, formatBytes } from './format'
+import { decodeHeifFile } from './heic'
+import {
+  FORMAT_NAME,
+  isHeifFormat,
+  readFileHead,
+  readImageSize,
+  sniffImageFormat,
+  type ImageFormat,
+} from './imageFormat'
 
 export type WatermarkMode = 'tiled' | 'single'
 
@@ -24,19 +33,65 @@ export const PREVIEW_MAX_DIMENSION = 1800
 
 const FONT_STACK = '"Segoe UI", "Inter", system-ui, -apple-system, sans-serif'
 
-/** iPhone menyimpan foto sebagai HEIC; Chrome/Firefox tidak punya decoder HEVC. */
-function isHeifFile(file: File): boolean {
-  return /hei[cf]/i.test(file.type) || /\.hei[cf]$/i.test(file.name)
+/** Ukuran di atas ambang ini biasanya sudah di luar kemampuan decode browser HP. */
+const MEGAPIXEL_MEMORY_LIMIT = 48
+
+/** Error decode dengan pesan siap tampil dan format hasil deteksi magic bytes. */
+export class ImageDecodeError extends Error {
+  format: ImageFormat
+
+  constructor(message: string, format: ImageFormat = 'unknown') {
+    super(message)
+    this.name = 'ImageDecodeError'
+    this.format = format
+  }
+}
+
+/** toBlob mengembalikan null: biasanya canvas terlalu besar untuk memori HP. */
+export class ImageEncodeError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'ImageEncodeError'
+  }
+}
+
+function describeFailure(file: File, format: ImageFormat, head: Uint8Array): string {
+  const name = FORMAT_NAME[format]
+  const size = readImageSize(head)
+  const megapixels = size ? (size.width * size.height) / 1_000_000 : 0
+
+  if (size && megapixels >= MEGAPIXEL_MEMORY_LIMIT) {
+    return `Foto ${name} ${size.width}×${size.height} (${megapixels.toFixed(0)} MP) terlalu besar untuk memori browser HP ini. Kompres di PC, atau pakai foto dengan resolusi lebih kecil.`
+  }
+
+  if (format === 'unknown') {
+    return `File "${file.name}" bukan gambar yang dikenali (${formatBytes(file.size)}). Pakai JPG, PNG, WebP, atau HEIC.`
+  }
+
+  if (format === 'svg') {
+    return 'File SVG belum bisa diproses sebagai foto. Ekspor dulu ke PNG, lalu unggah lagi.'
+  }
+
+  return `Format ${name} tidak bisa dibuka browser ini (${formatBytes(file.size)}). Ubah dulu ke JPG/PNG, lalu unggah lagi.`
+}
+
+function describeHeifFailure(
+  format: ImageFormat,
+  error: unknown,
+  head: Uint8Array,
+): string {
+  const reason = error instanceof Error ? error.message : String(error)
+  const size = readImageSize(head)
+  const dims = size ? ` ${size.width}×${size.height}` : ''
+  return `Foto ${FORMAT_NAME[format]}${dims} gagal dibuka. ${reason} Solusi cepat: ekspor ulang fotonya sebagai JPG dari aplikasi Galeri/Photos, lalu unggah lagi.`
 }
 
 /**
- * Decode a user file into a drawable source. Prefers createImageBitmap because
- * it applies EXIF orientation ("from-image") and decodes off the main thread.
- * Falls back to an <img> element when the browser refuses the file.
+ * Jalur decode bawaan browser. createImageBitmap dipakai lebih dulu karena
+ * menerapkan orientasi EXIF ("from-image") dan decode di luar main thread.
+ * Mengembalikan null (bukan throw) supaya pemanggil bisa mencoba dekoder lain.
  */
-export async function decodeImageFile(file: File): Promise<DecodedImage> {
-  const heif = isHeifFile(file)
-
+async function decodeNatively(file: File): Promise<DecodedImage | null> {
   if (typeof createImageBitmap === 'function') {
     try {
       const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' })
@@ -50,7 +105,7 @@ export async function decodeImageFile(file: File): Promise<DecodedImage> {
       }
       bitmap.close()
     } catch {
-      // Fall through to the <img> path below.
+      // Lanjut ke elemen <img> di bawah.
     }
   }
 
@@ -61,14 +116,7 @@ export async function decodeImageFile(file: File): Promise<DecodedImage> {
   try {
     await new Promise<void>((resolve, reject) => {
       image.onload = () => resolve()
-      image.onerror = () =>
-        reject(
-          new Error(
-            heif
-              ? 'Foto HEIC/HEIF tidak didukung browser ini. Pilih JPG/PNG, atau buka di Safari iPhone terbaru.'
-              : 'Format gambar ini tidak didukung browser Anda.',
-          ),
-        )
+      image.onerror = () => reject(new Error('decode-failed'))
       image.src = url
     })
 
@@ -85,10 +133,44 @@ export async function decodeImageFile(file: File): Promise<DecodedImage> {
         URL.revokeObjectURL(url)
       },
     }
-  } catch (error) {
+  } catch {
+    image.src = ''
     URL.revokeObjectURL(url)
-    throw error
+    return null
   }
+}
+
+/**
+ * Decode file gambar apa pun menjadi sumber yang bisa digambar ke canvas.
+ *
+ * Urutan: decoder bawaan browser → libheif wasm untuk HEIC/HEIF/AVIF yang tidak
+ * didukung browser HP. Error yang dilempar sudah berisi penyebab dan saran.
+ */
+export async function decodeImageFile(file: File): Promise<DecodedImage> {
+  const head = await readFileHead(file, 4096).catch(() => new Uint8Array())
+  const format = await sniffImageFormat(file, head)
+
+  const native = await decodeNatively(file)
+  if (native) return native
+
+  if (isHeifFormat(format)) {
+    try {
+      const heif = await decodeHeifFile(file)
+      return {
+        source: heif.canvas,
+        width: heif.width,
+        height: heif.height,
+        release: () => {
+          heif.canvas.width = 0
+          heif.canvas.height = 0
+        },
+      }
+    } catch (error) {
+      throw new ImageDecodeError(describeHeifFailure(format, error, head), format)
+    }
+  }
+
+  throw new ImageDecodeError(describeFailure(file, format, head), format)
 }
 
 export function paintWatermark(
@@ -201,18 +283,26 @@ export function canvasToBlob(
   quality?: number,
 ): Promise<Blob> {
   return new Promise((resolve, reject) => {
-    canvas.toBlob(
-      (blob) => {
-        if (blob) resolve(blob)
-        else
-          reject(
-            new Error(
-              'Browser gagal meng-encode gambar ini. Coba format JPEG/PNG atau gambar dengan dimensi lebih kecil.',
-            ),
-          )
-      },
-      mimeType,
-      quality,
-    )
+    const fail = (reason: unknown) =>
+      reject(
+        new ImageEncodeError(
+          reason instanceof Error
+            ? `Browser gagal meng-encode gambar ini: ${reason.message}`
+            : 'Browser gagal meng-encode gambar ini (kemungkinan memori HP penuh). Coba gambar dengan dimensi lebih kecil.',
+        ),
+      )
+
+    try {
+      canvas.toBlob(
+        (blob) => {
+          if (blob) resolve(blob)
+          else fail(null)
+        },
+        mimeType,
+        quality,
+      )
+    } catch (error) {
+      fail(error)
+    }
   })
 }

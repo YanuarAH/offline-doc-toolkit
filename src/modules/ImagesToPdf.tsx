@@ -36,6 +36,7 @@ import { Dropzone } from '../components/Dropzone'
 import { Segmented, SliderField } from '../components/Controls'
 import { buildImagesPdf, type PdfOrientation, type PdfPaperSize } from '../lib/imagesToPdf'
 import { decodeImageFile } from '../lib/image'
+import { partitionImageFiles } from '../lib/imageFormat'
 import {
   cn,
   compactDay,
@@ -57,13 +58,6 @@ function createId(): string {
     return `img-${crypto.randomUUID()}`
   }
   return `img-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-}
-
-function isImageFile(file: File): boolean {
-  return (
-    file.type.startsWith('image/') ||
-    /\.(png|jpe?g|webp|avif|gif|bmp)$/i.test(file.name)
-  )
 }
 
 interface ImageCardProps {
@@ -203,9 +197,9 @@ export function ImagesToPdf() {
 
   async function addFiles(files: File[]) {
     if (loading || exporting) return
-    const images = files.filter(isImageFile)
+    const { images } = await partitionImageFiles(files)
     if (images.length === 0) {
-      setNotice('Pilih file gambar (JPG, PNG, WebP, atau AVIF).')
+      setNotice('Pilih file gambar (JPG, PNG, WebP, HEIC, atau AVIF).')
       return
     }
 
@@ -360,7 +354,7 @@ export function ImagesToPdf() {
                 onFiles={(files) => void addFiles(files)}
                 title="Tarik gambar untuk dijadikan PDF"
                 subtitle="Susun banyak foto atau scan menjadi satu dokumen PDF"
-                hint="JPG, PNG, WebP, AVIF · urutan bisa diatur setelah diunggah"
+                hint="JPG, PNG, WebP, HEIC, AVIF · urutan bisa diatur setelah diunggah"
                 busy={loading}
               />
             </div>

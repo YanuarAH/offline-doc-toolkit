@@ -1,5 +1,5 @@
 import { clamp } from './format'
-import { canvasToBlob, type DecodedImage } from './image'
+import { canvasToBlob, ImageEncodeError, type DecodedImage } from './image'
 
 export type OutputFormat = 'webp' | 'jpeg' | 'png'
 
@@ -48,27 +48,35 @@ export const DIMENSION_STEP = 0.85
 const MAX_DIMENSION_ATTEMPTS = 24
 const MIN_SIDE = 32
 
-// Safari/iOS membatasi luas canvas sekitar 16,7 juta piksel. Tanpa batas ini,
-// foto 24/48 MP dari kamera iPhone menghasilkan canvas kosong atau toBlob null.
-const SAFARI_CANVAS_MAX_PIXELS = 16_000_000
-const SAFARI_CANVAS_MAX_SIDE = 4096
+// Batas luas canvas per kelas perangkat. Tanpa batas ini foto 48–108 MP dari
+// kamera HP menghasilkan canvas kosong di iOS (±16,7 juta piksel) atau toBlob
+// null di Android low-end (memori habis saat meng-encode).
+const CANVAS_LIMITS = {
+  constrained: { pixels: 16_000_000, side: 4096 },
+  desktop: { pixels: 48_000_000, side: 8192 },
+} as const
 
-function isSafariOrIOS(): boolean {
+const MAX_ENCODE_RETRIES = 8
+
+/** HP/tablet dianggap terbatas: Safari iOS, Android, atau RAM perangkat ≤ 4 GB. */
+function isConstrainedDevice(): boolean {
   if (typeof navigator === 'undefined') return false
+
   const userAgent = navigator.userAgent
   const isIOS =
     /iPad|iPhone|iPod/.test(userAgent) ||
     (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
-  const isSafari =
-    /Safari/i.test(userAgent) &&
-    !/Chrome|CriOS|Chromium|Edg|OPR|Android/i.test(userAgent)
-  return isIOS || isSafari
+  if (isIOS) return true
+  if (/Android|Mobile|Windows Phone|IEMobile/i.test(userAgent)) return true
+
+  const memory = (navigator as Navigator & { deviceMemory?: number }).deviceMemory
+  return typeof memory === 'number' && memory > 0 && memory <= 4
 }
 
 export function initialCanvasScale(width: number, height: number): number {
-  if (!isSafariOrIOS()) return 1
-  const areaScale = Math.sqrt(SAFARI_CANVAS_MAX_PIXELS / Math.max(1, width * height))
-  const sideScale = SAFARI_CANVAS_MAX_SIDE / Math.max(width, height)
+  const limits = isConstrainedDevice() ? CANVAS_LIMITS.constrained : CANVAS_LIMITS.desktop
+  const areaScale = Math.sqrt(limits.pixels / Math.max(1, width * height))
+  const sideScale = limits.side / Math.max(width, height)
   return Math.min(1, areaScale, sideScale)
 }
 
@@ -131,18 +139,22 @@ export async function compressImage(
   let scale = initialCanvasScale(image.width, image.height)
   let passes = 0
   let lastAttempt: CompressResult | null = null
+  let encodeFailures = 0
 
   for (let attempt = 0; attempt < MAX_DIMENSION_ATTEMPTS; attempt += 1) {
     const width = Math.max(1, Math.round(image.width * scale))
     const height = Math.max(1, Math.round(image.height * scale))
-    const canvas = drawToCanvas(
-      image.source,
-      width,
-      height,
-      options.format === 'png' ? null : '#ffffff',
-    )
+
+    let canvas: HTMLCanvasElement | null = null
 
     try {
+      canvas = drawToCanvas(
+        image.source,
+        width,
+        height,
+        options.format === 'png' ? null : '#ffffff',
+      )
+
       if (target === null) {
         const quality = clamp(options.quality ?? 0.82, MIN_QUALITY, 1)
         const blob = await encodeCanvas(canvas, mime, quality)
@@ -216,18 +228,37 @@ export async function compressImage(
         }
         if (lastAttempt.reachedTarget) return lastAttempt
       }
+    } catch (error) {
+      if (!(error instanceof ImageEncodeError)) throw error
+      // Canvas sebesar ini tidak muat di memori perangkat saat di-encode.
+      // Perkecil dimensinya lalu coba lagi sebelum menyerah.
+      encodeFailures += 1
+      if (encodeFailures > MAX_ENCODE_RETRIES) {
+        throw new ImageEncodeError(
+          'Browser HP kehabisan memori saat meng-encode foto ini. Coba foto dengan resolusi lebih kecil, atau kompres di PC.',
+        )
+      }
     } finally {
-      // iOS menahan memori canvas sampai dimensinya di-reset. Ini penting saat
-      // memproses banyak foto secara berurutan di HP.
-      canvas.width = 0
-      canvas.height = 0
+      if (canvas) {
+        // iOS menahan memori canvas sampai dimensinya di-reset. Ini penting saat
+        // memproses banyak foto secara berurutan di HP.
+        canvas.width = 0
+        canvas.height = 0
+      }
     }
 
     if (Math.min(width, height) <= MIN_SIDE) break
     scale *= DIMENSION_STEP
   }
 
-  if (!lastAttempt) throw new Error('Gambar tidak dapat dikompres.')
+  if (!lastAttempt) {
+    if (encodeFailures > 0) {
+      throw new ImageEncodeError(
+        'Browser gagal meng-encode foto ini karena memori tidak cukup. Coba foto dengan resolusi lebih kecil.',
+      )
+    }
+    throw new Error('Gambar tidak dapat dikompres.')
+  }
   return { ...lastAttempt, reachedTarget: false }
 }
 
