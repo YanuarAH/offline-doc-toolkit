@@ -12,6 +12,7 @@ interface DropzoneProps {
   icon?: LucideIcon
   compact?: boolean
   busy?: boolean
+  actionLabel?: string
 }
 
 export function Dropzone({
@@ -24,6 +25,7 @@ export function Dropzone({
   icon,
   compact = false,
   busy = false,
+  actionLabel = 'Pilih dari perangkat',
 }: DropzoneProps) {
   const inputRef = useRef<HTMLInputElement>(null)
   const dragDepth = useRef(0)
@@ -128,7 +130,7 @@ export function Dropzone({
       {!compact ? (
         <span className="relative mt-1 inline-flex items-center gap-2 rounded-xl border border-accent/25 bg-accent/[0.08] px-3.5 py-2 text-[11.5px] font-semibold text-accent transition group-hover:border-accent/40 group-hover:bg-accent/[0.12]">
           <ImagePlus size={13} />
-          Pilih dari perangkat
+          {actionLabel}
         </span>
       ) : null}
 

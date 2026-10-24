@@ -23,6 +23,12 @@ const SignatureStudio = lazy(() =>
   })),
 )
 
+const BackgroundRemover = lazy(() =>
+  import('./modules/BackgroundRemover').then((module) => ({
+    default: module.BackgroundRemover,
+  })),
+)
+
 function moduleFromHash(): ModuleId {
   const hash = window.location.hash.replace('#', '')
   const match = MODULES.find((module) => module.id === hash)
@@ -35,6 +41,8 @@ function renderModule(id: ModuleId) {
       return <Watermarker />
     case 'compressor':
       return <BatchCompressor />
+    case 'background':
+      return <BackgroundRemover />
     case 'pdf':
       return <PdfStudio />
     case 'signature':

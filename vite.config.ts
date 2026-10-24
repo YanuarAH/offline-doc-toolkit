@@ -10,6 +10,12 @@ export default defineConfig({
   build: {
     chunkSizeWarningLimit: 1000,
   },
+  // Pakai build "extern wasm" dari onnxruntime-web: file wasm diambil saat
+  // runtime dari /ort (lihat src/lib/backgroundModel.ts), bukan di-emit Vite
+  // sebagai aset 26 MB yang tidak pernah dipakai.
+  resolve: {
+    conditions: ['onnxruntime-web-use-extern-wasm'],
+  },
   plugins: [
     react(),
     tailwindcss(),
@@ -65,6 +71,32 @@ export default defineConfig({
           '**/icon-192.png',
           '**/icon-512.png',
           '**/icon-maskable-512.png',
+          // Aset AI diambil sesuai kebutuhan lalu di-cache (runtimeCaching).
+          '**/ort/**',
+          '**/models/**',
+        ],
+        // Model AI (±7 MB) + ONNX Runtime wasm (±14 MB) tidak ikut precache:
+        // baru diambil saat fitur Background Remover dipakai pertama kali, lalu
+        // disimpan Cache-First agar pemakaian berikutnya jalan tanpa internet.
+        runtimeCaching: [
+          {
+            urlPattern: /\/models\/.*\.(onnx|json)$/i,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'localkit-ai-model',
+              expiration: { maxEntries: 8, maxAgeSeconds: 60 * 60 * 24 * 365 },
+              cacheableResponse: { statuses: [200] },
+            },
+          },
+          {
+            urlPattern: /\/ort\/.*\.(wasm|mjs)$/i,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'localkit-ai-runtime',
+              expiration: { maxEntries: 8, maxAgeSeconds: 60 * 60 * 24 * 365 },
+              cacheableResponse: { statuses: [200] },
+            },
+          },
         ],
         navigateFallback: '/index.html',
         cleanupOutdatedCaches: true,

@@ -12,6 +12,11 @@ dist
 dist-ssr
 *.local
 
+# Aset AI: runtime disalin dari node_modules, bobot model diunduh saat install
+# (183 MB — melebihi batas 100 MB per file GitHub, jadi tidak di-commit).
+public/ort/*
+public/models/*
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

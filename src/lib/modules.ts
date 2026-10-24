@@ -1,6 +1,6 @@
-import { Images, Layers, PenTool, Stamp, type LucideIcon } from 'lucide-react'
+import { Images, Layers, PenTool, Scan, Stamp, type LucideIcon } from 'lucide-react'
 
-export type ModuleId = 'watermark' | 'compressor' | 'pdf' | 'signature'
+export type ModuleId = 'watermark' | 'compressor' | 'background' | 'pdf' | 'signature'
 
 export interface ModuleMeta {
   id: ModuleId
@@ -32,6 +32,16 @@ export const MODULES: ModuleMeta[] = [
       'Kompres banyak gambar sekaligus ke WebP, JPEG, atau PNG. Tentukan target KB dan biarkan algoritma mencari kualitas terbaik.',
     icon: Images,
     tag: 'Size Optimizer',
+  },
+  {
+    id: 'background',
+    title: 'Background Remover',
+    navLabel: 'Background Remover',
+    navHint: 'Hapus latar foto',
+    description:
+      'Remove image backgrounds instantly with AI. Your images stay on your device.',
+    icon: Scan,
+    tag: 'AI Cutout',
   },
   {
     id: 'pdf',

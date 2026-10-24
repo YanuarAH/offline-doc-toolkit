@@ -6,12 +6,13 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "predev": "node scripts/copy-ghostscript.mjs",
+    "predev": "node scripts/copy-ghostscript.mjs && node scripts/copy-ai-assets.mjs",
     "build": "tsc -b && vite build",
-    "prebuild": "node scripts/copy-ghostscript.mjs",
-    "postinstall": "node scripts/copy-ghostscript.mjs",
+    "prebuild": "node scripts/copy-ghostscript.mjs && node scripts/copy-ai-assets.mjs",
+    "postinstall": "node scripts/copy-ghostscript.mjs && node scripts/copy-ai-assets.mjs",
     "lint": "oxlint src",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "model:fetch": "node scripts/copy-ai-assets.mjs --force-model"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
@@ -20,6 +21,7 @@
     "jszip": "^3.10.2",
     "libheif-js": "^1.23.5",
     "lucide-react": "^1.61.0",
+    "onnxruntime-web": "1.31.0-dev.20260914-8d85527a0",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^6.4.299",
     "react": "^19.3.1",

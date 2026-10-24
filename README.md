@@ -31,6 +31,7 @@ foto KTP dan PDF bertanda tangan tetap berada di memori perangkat Anda.
 | --- | --- | --- |
 | **KTP & ID Card Watermarker** | ✅ | Watermark tiled / single stamp, unduh PNG/JPG resolusi asli |
 | **Batch Image Compressor** | ✅ | WebP/JPEG/PNG, target KB dengan binary search + auto-downscale, ZIP |
+| **Background Remover** | ✅ | AI segmentasi BiRefNet-lite 512 (objek & orang), unduh PNG transparan |
 | **PDF Studio** | ✅ | Organizer + compressor Ghostscript WASM 3 level (72/150/300 DPI) |
 | **Image-to-PDF & Signature Stamper** | ✅ | Gambar → PDF A4/F4/Fit, stempel tanda tangan rotation-aware |
 
@@ -46,6 +47,8 @@ foto KTP dan PDF bertanda tangan tetap berada di memori perangkat Anda.
   dimuat on-demand dan berjalan di MEMFS browser. Lisensi Ghostscript: AGPL-3.0
   (file LICENSE disalin ke `public/wasm/`).
 - **JSZip** — unduhan batch `.zip` pada Modul 2.
+- **onnxruntime-web** — menjalankan model **BiRefNet-lite 512** untuk Background
+  Remover langsung di WASM browser. Runtime MIT, model MIT.
 - **vite-plugin-pwa** (Workbox) — service worker, manifest, installable, offline.
 
 ## Mulai cepat
@@ -171,6 +174,44 @@ berada di background atau lingkungan headless.
   gambar diputar `-pageRotation` agar tetap tegak pada halaman ber-`/Rotate`.
 - Halaman lain tidak diubah; PDF asli tidak di-rasterize.
 
+## Detail Modul — Background Remover
+
+Satu model untuk semua subjek: **BiRefNet-lite 512** (MIT), dijalankan
+`onnxruntime-web` di WASM. Tidak ada API, API key, atau unggahan gambar.
+
+| Aspek | Nilai |
+| --- | --- |
+| Model | BiRefNet-lite 512 (`public/models/birefnet512/model.onnx`) |
+| Sumber | `JONNYVERSE/birefnet-lite-512` (re-export ONNX 512×512 dari `ZhengPeng7/BiRefNet_lite`) |
+| Ukuran | 183 MB (fp32; varian fp16 98 MB tidak jalan di wasm) |
+| Input / output | 512×512 → logits 512×512 (sigmoid → alpha) |
+| Waktu proses | ±13–15 detik/gambar di desktop (single-thread), run pertama ±25–30 detik |
+| Unduhan pertama | ±197 MB (runtime 13,6 MB + bobot 183 MB), sekali saja |
+
+Catatan penting: varian 1024×1024 dari BiRefNet-lite **tidak bisa** dipakai di
+browser — onnxruntime-web kehabisan memori (`std::bad_alloc`) karena tensor
+antara di decoder sangat besar. Re-export 512×512 memperkecil tensor 4× dan
+berjalan stabil, dengan kualitas tepi yang masih baik (uji internal: potret
+8/10 — helai rambut & rantai leher bertahan; burger 8,5/10 — daun selada tipis
+tetap utuh).
+
+- Alur: upload (JPG/PNG/WebP, maks 25 MB dan 20 MP) → preview → **Remove
+  Background** → hasil dengan checkerboard → unduh PNG.
+- Output PNG **mempertahankan channel alpha** (`destination-in` dengan matte
+  model, bukan latar putih). Pilihan preview *transparan / putih / biru* hanya
+  memengaruhi tampilan, tidak ikut ke file unduhan.
+- Progress nyata: unduhan runtime dan bobot dilaporkan per byte; fase inferensi
+  tidak menampilkan persentase palsu (wasm memblokir main thread, overlay tetap
+  tampil sebelum proses dimulai).
+- Aset disiapkan `scripts/copy-ai-assets.mjs` (dipanggil `postinstall`,
+  `predev`, `prebuild`): runtime wasm disalin dari `node_modules`, bobot
+  diunduh sekali dari Hugging Face. File 183 MB **tidak di-commit** karena
+  melebihi batas 100 MB per file GitHub; ulangi unduhan dengan
+  `npm run model:fetch`.
+- Batasan: mask 512×512 di-upscale ke resolusi gambar, jadi helai rambut paling
+  halus masih sedikit tererosi; ±13–15 detik/gambar di desktop dan bisa 2–3×
+  lebih lama di ponsel; gambar >20 MP ditolak agar memori aman.
+
 ## PWA & offline
 
 `vite.config.ts` memakai `registerType: 'autoUpdate'` dan Workbox:
@@ -183,6 +224,13 @@ Pola tersebut mencakup bundle JS, worker `.mjs`, wasm, dan font/CMap pdf.js.
 `maximumFileSizeToCacheInBytes` dinaikkan ke **30 MB** agar `gs.wasm` (±16 MB)
 ikut di-precache dan kompresor tetap berjalan 100% offline setelah kunjungan
 pertama.
+
+Aset Background Remover (`/models/**`, `/ort/**`) **tidak** di-precache agar
+kunjungan pertama tidak mengunduh ±197 MB untuk fitur yang mungkin tidak
+dipakai. Keduanya memakai `runtimeCaching` **CacheFirst** (`localkit-ai-model`,
+`localkit-ai-runtime`): diambil saat fitur pertama kali dipakai, lalu tersedia
+offline. Artinya fitur ini butuh internet **sekali** (unduhan runtime + model),
+bukan sejak kunjungan pertama.
 
 `vercel.json` menetapkan `Content-Type: application/wasm` untuk
 `/wasm/gs.wasm` agar instantiasi WASM tidak gagal saat deploy.
@@ -200,7 +248,7 @@ Header aplikasi menampilkan status:
 src/
   App.tsx                      # shell, navigasi, status offline, lazy PDF modules
   components/
-    Sidebar.tsx                # 4 modul + privacy card
+    Sidebar.tsx                # 5 modul + privacy card
     Dropzone.tsx               # drag-and-drop single/multi file
     Controls.tsx               # segmented control + slider
     SignaturePad.tsx           # canvas tanda tangan (mouse + touch)
@@ -213,11 +261,15 @@ src/
     pageRange.ts               # parser "1-3,5"
     imagesToPdf.ts             # image → PDF A4/F4/Fit
     signPdf.ts                 # stamping rotation-aware
+    backgroundRemoval.ts       # validasi file + error ramah (ringan)
+    backgroundModelInfo.ts     # konstanta aset + status cache model
+    backgroundModel.ts         # BiRefNet-lite 512 + ONNX Runtime (chunk lazy)
     format.ts                  # bytes, tanggal, download, revoke URL
     modules.ts                 # metadata modul
   modules/
     Watermarker.tsx
     BatchCompressor.tsx
+    BackgroundRemover.tsx
     PdfStudio.tsx              # sub-tab Organizer / Compressor
     PdfOrganizer.tsx
     PdfCompressor.tsx
@@ -227,9 +279,12 @@ src/
 public/
   pdfjs/                       # cmaps, standard_fonts, wasm, iccs (offline)
   wasm/                        # gs.js + gs.wasm (Ghostscript, offline)
+  ort/                         # runtime ONNX Runtime Web (dibuat saat install)
+  models/birefnet512/          # bobot BiRefNet-lite 512 (diunduh saat install)
   icon-192.png, icon-512.png, icon-maskable-512.png
 scripts/
   copy-ghostscript.mjs         # salin aset Ghostscript saat install/build
+  copy-ai-assets.mjs           # salin runtime ONNX + unduh bobot BiRefNet-lite
 vercel.json                    # header Content-Type application/wasm
 ```
 
