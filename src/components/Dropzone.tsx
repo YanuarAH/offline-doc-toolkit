@@ -1,6 +1,7 @@
 import { useRef, useState, type DragEvent, type KeyboardEvent } from 'react'
 import { ImagePlus, Loader2, UploadCloud, type LucideIcon } from 'lucide-react'
 import { cn } from '../lib/format'
+import { ImageSourcePicker } from './ImageSourcePicker'
 
 interface DropzoneProps {
   onFiles: (files: File[]) => void
@@ -25,17 +26,13 @@ export function Dropzone({
   icon,
   compact = false,
   busy = false,
-  actionLabel = 'Pilih dari perangkat',
+  actionLabel = 'Pilih sumber gambar',
 }: DropzoneProps) {
   const inputRef = useRef<HTMLInputElement>(null)
   const dragDepth = useRef(0)
   const [dragging, setDragging] = useState(false)
   const Icon = icon ?? UploadCloud
-
-  const openPicker = () => {
-    if (busy) return
-    inputRef.current?.click()
-  }
+  const imagePicker = accept.toLowerCase().includes('image/')
 
   const handleDrop = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault()
@@ -48,21 +45,36 @@ export function Dropzone({
     onFiles(multiple ? files : files.slice(0, 1))
   }
 
-  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+  const handleKeyDown = (
+    event: KeyboardEvent<HTMLDivElement>,
+    openPicker: () => void,
+  ) => {
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault()
-      openPicker()
+      if (busy) return
+      if (imagePicker) openPicker()
+      else inputRef.current?.click()
     }
   }
 
   return (
+    <>
+    <ImageSourcePicker
+      accept={accept}
+      multiple={multiple}
+      disabled={busy}
+      onFiles={(files) => onFiles(multiple ? files : files.slice(0, 1))}
+    >
+    {(openPicker) => (
     <div
       role="button"
       tabIndex={0}
       aria-label={title}
       aria-busy={busy}
-      onClick={openPicker}
-      onKeyDown={handleKeyDown}
+      onClick={imagePicker ? openPicker : () => {
+        if (!busy) inputRef.current?.click()
+      }}
+      onKeyDown={(event) => handleKeyDown(event, openPicker)}
       onDragEnter={(event) => {
         event.preventDefault()
         dragDepth.current += 1
@@ -134,18 +146,21 @@ export function Dropzone({
         </span>
       ) : null}
 
-      <input
-        ref={inputRef}
-        type="file"
-        accept={accept}
-        multiple={multiple}
-        className="hidden"
-        onChange={(event) => {
-          const files = Array.from(event.target.files ?? [])
-          event.target.value = ''
-          if (files.length > 0) onFiles(multiple ? files : files.slice(0, 1))
-        }}
-      />
     </div>
+    )}
+    </ImageSourcePicker>
+    <input
+      ref={inputRef}
+      type="file"
+      accept={accept}
+      multiple={multiple}
+      className="hidden"
+      onChange={(event) => {
+        const files = Array.from(event.target.files ?? [])
+        event.target.value = ''
+        if (files.length > 0) onFiles(multiple ? files : files.slice(0, 1))
+      }}
+    />
+    </>
   )
 }

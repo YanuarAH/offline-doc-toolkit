@@ -33,6 +33,7 @@ import {
   X,
 } from 'lucide-react'
 import { Dropzone } from '../components/Dropzone'
+import { ImageSourcePicker } from '../components/ImageSourcePicker'
 import { Segmented, SliderField } from '../components/Controls'
 import { buildImagesPdf, type PdfOrientation, type PdfPaperSize } from '../lib/imagesToPdf'
 import { decodeImageFile } from '../lib/image'
@@ -175,7 +176,6 @@ export function ImagesToPdf() {
   const [notice, setNotice] = useState<string | null>(null)
   const [exportInfo, setExportInfo] = useState<string | null>(null)
 
-  const inputRef = useRef<HTMLInputElement>(null)
   const urlsRef = useRef<Set<string>>(new Set())
   const mountedRef = useRef(true)
 
@@ -418,15 +418,19 @@ export function ImagesToPdf() {
                 {formatBytes(totalSize)}
               </span>
 
-              <button
-                type="button"
-                className="chip ml-auto"
-                onClick={() => inputRef.current?.click()}
-                disabled={busy}
-              >
-                <Plus size={11} />
-                Tambah gambar
-              </button>
+              <ImageSourcePicker multiple disabled={busy} onFiles={(files) => void addFiles(files)}>
+                {(openPicker) => (
+                  <button
+                    type="button"
+                    className="chip ml-auto"
+                    onClick={openPicker}
+                    disabled={busy}
+                  >
+                    <Plus size={11} />
+                    Tambah gambar
+                  </button>
+                )}
+              </ImageSourcePicker>
               <button
                 type="button"
                 className="btn-quiet !px-2 !py-1.5 !text-[10px]"
@@ -601,18 +605,6 @@ export function ImagesToPdf() {
         </div>
       )}
 
-      <input
-        ref={inputRef}
-        type="file"
-        accept="image/*"
-        multiple
-        className="hidden"
-        onChange={(event) => {
-          const files = Array.from(event.target.files ?? [])
-          event.target.value = ''
-          if (files.length > 0) void addFiles(files)
-        }}
-      />
     </div>
   )
 }

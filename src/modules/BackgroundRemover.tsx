@@ -17,6 +17,7 @@ import {
   X,
 } from 'lucide-react'
 import { Dropzone } from '../components/Dropzone'
+import { ImageSourcePicker } from '../components/ImageSourcePicker'
 import { Segmented } from '../components/Controls'
 import {
   ACCEPTED_LABEL,
@@ -99,7 +100,6 @@ export function BackgroundRemover() {
   const [unsupported] = useState<string | null>(() => checkSupport())
   const [modelCached, setModelCached] = useState<boolean | null>(null)
 
-  const inputRef = useRef<HTMLInputElement>(null)
   const busyRef = useRef(false)
   const mountedRef = useRef(true)
   const urlsRef = useRef<Set<string>>(new Set())
@@ -153,11 +153,6 @@ export function BackgroundRemover() {
     setSrcUrl(null)
     setImage(null)
     setError(null)
-  }
-
-  function openPicker() {
-    if (busyRef.current) return
-    inputRef.current?.click()
   }
 
   async function pickFile(file: File) {
@@ -288,7 +283,7 @@ export function BackgroundRemover() {
                   if (file) void pickFile(file)
                 }}
                 title="Drop an image to remove its background"
-                subtitle="Atau klik untuk memilih satu foto — subjek utama akan dipisahkan otomatis oleh model AI."
+                subtitle="Pilih foto atau ambil langsung dari kamera — subjek utama dipisahkan otomatis oleh model AI."
                 hint={`${ACCEPTED_LABEL} · maksimal ${formatBytes(MAX_FILE_BYTES)} · diproses 100% di perangkat ini`}
                 busy={busy}
               />
@@ -502,15 +497,26 @@ export function BackgroundRemover() {
                 Remove Another Background
               </button>
               <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  className="btn-ghost !px-3 !py-2 !text-[11.5px]"
-                  onClick={openPicker}
+                <ImageSourcePicker
+                  accept={ACCEPT_ATTRIBUTE}
                   disabled={busy}
+                  onFiles={(files) => {
+                    const file = files[0]
+                    if (file) void pickFile(file)
+                  }}
                 >
-                  <ImagePlus size={13} />
-                  Change Image
-                </button>
+                  {(openPicker) => (
+                    <button
+                      type="button"
+                      className="btn-ghost !px-3 !py-2 !text-[11.5px]"
+                      onClick={openPicker}
+                      disabled={busy}
+                    >
+                      <ImagePlus size={13} />
+                      Change Image
+                    </button>
+                  )}
+                </ImageSourcePicker>
                 <button
                   type="button"
                   className="btn-ghost !px-3 !py-2 !text-[11.5px]"
@@ -626,15 +632,26 @@ export function BackgroundRemover() {
             </button>
 
             <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                className="btn-ghost !px-3 !py-2 !text-[11.5px]"
-                onClick={openPicker}
+              <ImageSourcePicker
+                accept={ACCEPT_ATTRIBUTE}
                 disabled={busy}
+                onFiles={(files) => {
+                  const file = files[0]
+                  if (file) void pickFile(file)
+                }}
               >
-                <ImagePlus size={13} />
-                Change Image
-              </button>
+                {(openPicker) => (
+                  <button
+                    type="button"
+                    className="btn-ghost !px-3 !py-2 !text-[11.5px]"
+                    onClick={openPicker}
+                    disabled={busy}
+                  >
+                    <ImagePlus size={13} />
+                    Change Image
+                  </button>
+                )}
+              </ImageSourcePicker>
               <button
                 type="button"
                 className="btn-ghost !px-3 !py-2 !text-[11.5px]"
@@ -670,17 +687,6 @@ export function BackgroundRemover() {
         </div>
       )}
 
-      <input
-        ref={inputRef}
-        type="file"
-        accept={ACCEPT_ATTRIBUTE}
-        className="hidden"
-        onChange={(event) => {
-          const file = event.target.files?.[0]
-          event.target.value = ''
-          if (file) void pickFile(file)
-        }}
-      />
     </div>
   )
 }

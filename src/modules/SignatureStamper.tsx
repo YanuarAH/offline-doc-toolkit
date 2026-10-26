@@ -22,6 +22,7 @@ import {
   Upload,
 } from 'lucide-react'
 import { Dropzone } from '../components/Dropzone'
+import { ImageSourcePicker } from '../components/ImageSourcePicker'
 import { SignaturePad, type AppliedSignature } from '../components/SignaturePad'
 import { SliderField } from '../components/Controls'
 import {
@@ -123,7 +124,6 @@ export function SignatureStamper() {
   const [exportInfo, setExportInfo] = useState<string | null>(null)
 
   const pdfInputRef = useRef<HTMLInputElement>(null)
-  const signatureInputRef = useRef<HTMLInputElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const pageWrapRef = useRef<HTMLDivElement>(null)
   const pdfDocRef = useRef<PDFDocumentProxy | null>(null)
@@ -903,14 +903,25 @@ export function SignatureStamper() {
                         {signature.width}×{signature.height} · {formatBytes(signature.size)}
                       </p>
                     </div>
-                    <button
-                      type="button"
-                      className="btn-ghost !px-2 !py-1 !text-[9.5px]"
-                      onClick={() => signatureInputRef.current?.click()}
+                    <ImageSourcePicker
+                      accept="image/png,image/jpeg,.png,.jpg,.jpeg"
                       disabled={busy}
+                      onFiles={(files) => {
+                        const file = files[0]
+                        if (file) void handleSignatureFile(file)
+                      }}
                     >
-                      Ganti
-                    </button>
+                      {(openPicker) => (
+                        <button
+                          type="button"
+                          className="btn-ghost !px-2 !py-1 !text-[9.5px]"
+                          onClick={openPicker}
+                          disabled={busy}
+                        >
+                          Ganti
+                        </button>
+                      )}
+                    </ImageSourcePicker>
                   </div>
                 </div>
 
@@ -1042,17 +1053,6 @@ export function SignatureStamper() {
           )}
         </section>
 
-        <input
-          ref={signatureInputRef}
-          type="file"
-          accept="image/png,image/jpeg,.png,.jpg,.jpeg"
-          className="hidden"
-          onChange={(event) => {
-            const file = event.target.files?.[0]
-            event.target.value = ''
-            if (file) void handleSignatureFile(file)
-          }}
-        />
         <input
           ref={pdfInputRef}
           type="file"

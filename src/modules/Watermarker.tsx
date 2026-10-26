@@ -20,6 +20,7 @@ import {
   WifiOff,
 } from 'lucide-react'
 import { Dropzone } from '../components/Dropzone'
+import { ImageSourcePicker } from '../components/ImageSourcePicker'
 import { Segmented, SliderField } from '../components/Controls'
 import {
   PREVIEW_MAX_DIMENSION,
@@ -82,7 +83,6 @@ export function Watermarker() {
 
   const docRef = useRef<LoadedDoc | null>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const replaceInputRef = useRef<HTMLInputElement>(null)
   const loadRequestRef = useRef(0)
 
   useEffect(() => {
@@ -232,7 +232,7 @@ export function Watermarker() {
                   if (files[0]) void handleIncomingFile(files[0])
                 }}
                 title="Tarik foto KTP atau dokumen ke sini"
-                subtitle="Atau klik untuk memilih file dari perangkat"
+                subtitle="Atau upload foto atau ambil langsung dari kamera"
                 hint="JPG, PNG, WebP, HEIC, AVIF · diproses lokal, tanpa upload"
                 busy={loading}
               />
@@ -385,15 +385,25 @@ export function Watermarker() {
                   Unduh {exportFormat === 'png' ? 'PNG' : 'JPG'}
                 </span>
               </button>
-              <button
-                type="button"
-                className="btn-ghost !px-2.5 !py-2 !text-[11px]"
-                onClick={() => replaceInputRef.current?.click()}
+              <ImageSourcePicker
                 disabled={loading}
+                onFiles={(files) => {
+                  const file = files[0]
+                  if (file) void handleIncomingFile(file)
+                }}
               >
-                <Upload size={12} />
-                Ganti
-              </button>
+                {(openPicker) => (
+                  <button
+                    type="button"
+                    className="btn-ghost !px-2.5 !py-2 !text-[11px]"
+                    onClick={openPicker}
+                    disabled={loading}
+                  >
+                    <Upload size={12} />
+                    Ganti
+                  </button>
+                )}
+              </ImageSourcePicker>
               <button
                 type="button"
                 className="icon-btn hover:!border-danger/40 hover:!text-danger"
@@ -641,17 +651,6 @@ export function Watermarker() {
         </div>
       </section>
 
-      <input
-        ref={replaceInputRef}
-        type="file"
-        accept="image/*"
-        className="hidden"
-        onChange={(event) => {
-          const file = event.target.files?.[0]
-          event.target.value = ''
-          if (file) void handleIncomingFile(file)
-        }}
-      />
     </div>
   )
 }

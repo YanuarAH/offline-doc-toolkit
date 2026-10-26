@@ -19,6 +19,7 @@ import {
   X,
 } from 'lucide-react'
 import { Dropzone } from '../components/Dropzone'
+import { ImageSourcePicker } from '../components/ImageSourcePicker'
 import { Segmented, SliderField } from '../components/Controls'
 import {
   FORMAT_EXT,
@@ -93,7 +94,6 @@ export function BatchCompressor() {
   const [notice, setNotice] = useState<Notice | null>(null)
   const [webpSupported, setWebpSupported] = useState<boolean | null>(null)
 
-  const addInputRef = useRef<HTMLInputElement>(null)
   const urlsRef = useRef<Set<string>>(new Set())
   const outUrlByItemRef = useRef<Map<string, string>>(new Map())
   const mountedRef = useRef(true)
@@ -399,15 +399,19 @@ export function BatchCompressor() {
             ) : null}
           </div>
           <div className="flex items-center gap-1.5">
-            <button
-              type="button"
-              className="btn-ghost !py-1.5 !text-[11px]"
-              onClick={() => addInputRef.current?.click()}
-              disabled={busy}
-            >
-              <Plus size={12} />
-              Tambah gambar
-            </button>
+            <ImageSourcePicker multiple disabled={busy} onFiles={addFiles}>
+              {(openPicker) => (
+                <button
+                  type="button"
+                  className="btn-ghost !py-1.5 !text-[11px]"
+                  onClick={openPicker}
+                  disabled={busy}
+                >
+                  <Plus size={12} />
+                  Tambah gambar
+                </button>
+              )}
+            </ImageSourcePicker>
             <button
               type="button"
               className="btn-quiet !text-[11px]"
@@ -865,18 +869,6 @@ export function BatchCompressor() {
         </div>
       )}
 
-      <input
-        ref={addInputRef}
-        type="file"
-        accept="image/*"
-        multiple
-        className="hidden"
-        onChange={(event) => {
-          const files = Array.from(event.target.files ?? [])
-          event.target.value = ''
-          if (files.length > 0) addFiles(files)
-        }}
-      />
     </div>
   )
 }
