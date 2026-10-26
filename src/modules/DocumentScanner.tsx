@@ -45,6 +45,25 @@ const CORNER_LABELS: Record<keyof EdgePoints, string> = {
   bottomRight: 'Pojok kanan bawah',
 }
 
+const SIDE_HANDLES = [
+  { label: 'Sisi atas', points: ['topLeft', 'topRight'] },
+  { label: 'Sisi kanan', points: ['topRight', 'bottomRight'] },
+  { label: 'Sisi bawah', points: ['bottomLeft', 'bottomRight'] },
+  { label: 'Sisi kiri', points: ['topLeft', 'bottomLeft'] },
+] as const satisfies ReadonlyArray<{
+  label: string
+  points: readonly [keyof EdgePoints, keyof EdgePoints]
+}>
+
+type DragTarget =
+  | { kind: 'corner'; key: keyof EdgePoints; startCorners: EdgePoints }
+  | {
+      kind: 'side'
+      points: readonly [keyof EdgePoints, keyof EdgePoints]
+      startPointer: [number, number]
+      startCorners: EdgePoints
+    }
+
 function DocumentPreview({
   canvas,
   corners,
@@ -55,7 +74,7 @@ function DocumentPreview({
   onCornersChange: (corners: EdgePoints) => void
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
-  const dragCornerRef = useRef<keyof EdgePoints | null>(null)
+  const dragTargetRef = useRef<DragTarget | null>(null)
   const maxWidth = Math.max(1, Math.min(680, window.innerWidth - 64))
   const scale = Math.min(1, maxWidth / canvas.width, 540 / canvas.height)
   const width = Math.max(1, Math.round(canvas.width * scale))
@@ -68,13 +87,38 @@ function DocumentPreview({
   ]
 
   function moveCorner(event: PointerEvent<HTMLDivElement>) {
-    const key = dragCornerRef.current
+    const dragTarget = dragTargetRef.current
     const container = containerRef.current
-    if (!key || !container) return
+    if (!dragTarget || !container) return
     const rect = container.getBoundingClientRect()
     const x = Math.max(0, Math.min(canvas.width, ((event.clientX - rect.left) / rect.width) * canvas.width))
     const y = Math.max(0, Math.min(canvas.height, ((event.clientY - rect.top) / rect.height) * canvas.height))
-    onCornersChange({ ...corners, [key]: [x, y] })
+    if (dragTarget.kind === 'corner') {
+      onCornersChange({
+        ...dragTarget.startCorners,
+        [dragTarget.key]: [x, y],
+      })
+      return
+    }
+
+    const deltaX = x - dragTarget.startPointer[0]
+    const deltaY = y - dragTarget.startPointer[1]
+    const nextCorners = { ...dragTarget.startCorners }
+    for (const key of dragTarget.points) {
+      const [startX, startY] = dragTarget.startCorners[key]
+      nextCorners[key] = [
+        Math.max(0, Math.min(canvas.width, startX + deltaX)),
+        Math.max(0, Math.min(canvas.height, startY + deltaY)),
+      ]
+    }
+    onCornersChange(nextCorners)
+  }
+
+  function startDrag(event: PointerEvent<HTMLButtonElement>, target: DragTarget) {
+    event.preventDefault()
+    event.stopPropagation()
+    dragTargetRef.current = target
+    containerRef.current?.setPointerCapture(event.pointerId)
   }
 
   return (
@@ -85,13 +129,13 @@ function DocumentPreview({
         style={{ width, height }}
         onPointerMove={moveCorner}
         onPointerUp={(event) => {
-          dragCornerRef.current = null
+          dragTargetRef.current = null
           if (event.currentTarget.hasPointerCapture(event.pointerId)) {
             event.currentTarget.releasePointerCapture(event.pointerId)
           }
         }}
         onPointerCancel={() => {
-          dragCornerRef.current = null
+          dragTargetRef.current = null
         }}
       >
         <canvas
@@ -119,6 +163,35 @@ function DocumentPreview({
             vectorEffect="non-scaling-stroke"
           />
         </svg>
+        {SIDE_HANDLES.map(({ label, points }) => {
+          const first = corners[points[0]]
+          const second = corners[points[1]]
+          const x = (first[0] + second[0]) / 2
+          const y = (first[1] + second[1]) / 2
+          const isHorizontal =
+            (points[0] === 'topLeft' && points[1] === 'topRight') ||
+            (points[0] === 'bottomLeft' && points[1] === 'bottomRight')
+          return (
+            <button
+              key={label}
+              type="button"
+              aria-label={`Geser ${label.toLowerCase()}`}
+              title={`Geser ${label.toLowerCase()}`}
+              className={`absolute z-10 touch-none rounded-full border-2 border-ink-950 bg-accent shadow-[0_0_0_1px_rgba(94,234,212,.8)] ${
+                isHorizontal ? 'h-3 w-10 -translate-x-1/2 -translate-y-1/2' : 'h-10 w-3 -translate-x-1/2 -translate-y-1/2'
+              }`}
+              style={{ left: `${(x / canvas.width) * 100}%`, top: `${(y / canvas.height) * 100}%` }}
+              onPointerDown={(event) =>
+                startDrag(event, {
+                  kind: 'side',
+                  points,
+                  startPointer: [x, y],
+                  startCorners: corners,
+                })
+              }
+            />
+          )
+        })}
         {(Object.keys(corners) as Array<keyof EdgePoints>).map((key) => {
           const [x, y] = corners[key]
           return (
@@ -129,12 +202,9 @@ function DocumentPreview({
               title={CORNER_LABELS[key]}
               className="absolute z-10 grid size-8 -translate-x-1/2 -translate-y-1/2 touch-none place-items-center rounded-full border-2 border-accent bg-ink-950/80 shadow-lg"
               style={{ left: `${(x / canvas.width) * 100}%`, top: `${(y / canvas.height) * 100}%` }}
-              onPointerDown={(event) => {
-                event.preventDefault()
-                event.stopPropagation()
-                dragCornerRef.current = key
-                containerRef.current?.setPointerCapture(event.pointerId)
-              }}
+              onPointerDown={(event) =>
+                startDrag(event, { kind: 'corner', key, startCorners: corners })
+              }
             >
               <span className="size-2 rounded-full bg-accent" />
             </button>
@@ -142,7 +212,7 @@ function DocumentPreview({
         })}
       </div>
       <p className="text-center text-[10px] text-ink-500">
-        Geser empat titik ke sudut dokumen yang ingin dipindai.
+        Geser titik sudut atau pegangan di tengah sisi untuk menyesuaikan batas dokumen.
       </p>
     </div>
   )
