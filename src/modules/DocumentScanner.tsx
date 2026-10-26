@@ -1,178 +1,149 @@
-import React, { useState } from 'react'
+import { useMemo, useRef, useState, type PointerEvent } from 'react'
 import {
   AlertTriangle,
-  CheckCircle2,
+  Check,
   Download,
+  FileImage,
   Lock,
   RotateCcw,
+  ScanLine,
+  Upload,
 } from 'lucide-react'
-import { SourceSelector } from '../components/SourceSelector'
+import { Dropzone } from '../components/Dropzone'
 import { SliderField } from '../components/Controls'
 import {
   adjustImage,
   cropToCorners,
+  detectDocumentCorners,
   loadImageToCanvas,
   type EdgePoints,
   type ScannerControls,
 } from '../lib/documentScanner'
-import { downloadBlob, sanitizeBaseName } from '../lib/format'
+import { downloadBlob, errorMessage, sanitizeBaseName } from '../lib/format'
 
 interface ScanState {
-  original?: HTMLCanvasElement
+  original: HTMLCanvasElement
   processed?: HTMLCanvasElement
-  dataUrl?: string
-  filename?: string
-  corners?: EdgePoints
+  filename: string
+  corners: EdgePoints
+  autoDetected: boolean
   controls: ScannerControls
-  mode: 'select' | 'adjust' | 'preview'
-  error?: string
+  mode: 'adjust' | 'preview'
 }
 
 const DEFAULT_CONTROLS: ScannerControls = {
   brightness: 0,
   contrast: 0,
   saturation: 0,
+  filter: 'color',
 }
 
-function autoDetectCorners(canvas: HTMLCanvasElement): EdgePoints {
-  const margin = Math.min(canvas.width, canvas.height) * 0.05
-
-  return {
-    topLeft: [margin, margin],
-    topRight: [canvas.width - margin, margin],
-    bottomLeft: [margin, canvas.height - margin],
-    bottomRight: [canvas.width - margin, canvas.height - margin],
-  }
+const CORNER_LABELS: Record<keyof EdgePoints, string> = {
+  topLeft: 'Pojok kiri atas',
+  topRight: 'Pojok kanan atas',
+  bottomLeft: 'Pojok kiri bawah',
+  bottomRight: 'Pojok kanan bawah',
 }
 
-function CanvasPreview({
+function DocumentPreview({
   canvas,
   corners,
-  width,
-  height,
-  onCornerChange,
+  onCornersChange,
 }: {
   canvas: HTMLCanvasElement
   corners: EdgePoints
-  width: number
-  height: number
-  onCornerChange: (corners: EdgePoints) => void
+  onCornersChange: (corners: EdgePoints) => void
 }) {
-  const containerRef = React.useRef<HTMLDivElement>(null)
-  const dragCornerRef = React.useRef<string | undefined>(undefined)
-  const scaleX = width / canvas.width
-  const scaleY = height / canvas.height
+  const containerRef = useRef<HTMLDivElement>(null)
+  const dragCornerRef = useRef<keyof EdgePoints | null>(null)
+  const maxWidth = Math.max(1, Math.min(680, window.innerWidth - 64))
+  const scale = Math.min(1, maxWidth / canvas.width, 540 / canvas.height)
+  const width = Math.max(1, Math.round(canvas.width * scale))
+  const height = Math.max(1, Math.round(canvas.height * scale))
+  const orderedCorners = [
+    corners.topLeft,
+    corners.topRight,
+    corners.bottomRight,
+    corners.bottomLeft,
+  ]
 
-  React.useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!dragCornerRef.current || !e.buttons) return
-      if (!containerRef.current) return
-
-      const rect = containerRef.current.getBoundingClientRect()
-      const x = Math.max(0, Math.min(width, e.clientX - rect.left)) / scaleX
-      const y = Math.max(0, Math.min(height, e.clientY - rect.top)) / scaleY
-
-      onCornerChange({
-        ...corners,
-        [dragCornerRef.current]: [x, y],
-      })
-    }
-
-    const handleMouseUp = () => {
-      dragCornerRef.current = undefined
-    }
-
-    document.addEventListener('mousemove', handleMouseMove)
-    document.addEventListener('mouseup', handleMouseUp)
-
-    return () => {
-      document.removeEventListener('mousemove', handleMouseMove)
-      document.removeEventListener('mouseup', handleMouseUp)
-    }
-  }, [corners, onCornerChange, scaleX, scaleY, width, height])
+  function moveCorner(event: PointerEvent<HTMLDivElement>) {
+    const key = dragCornerRef.current
+    const container = containerRef.current
+    if (!key || !container) return
+    const rect = container.getBoundingClientRect()
+    const x = Math.max(0, Math.min(canvas.width, ((event.clientX - rect.left) / rect.width) * canvas.width))
+    const y = Math.max(0, Math.min(canvas.height, ((event.clientY - rect.top) / rect.height) * canvas.height))
+    onCornersChange({ ...corners, [key]: [x, y] })
+  }
 
   return (
-    <div
-      ref={containerRef}
-      className="relative inline-block overflow-hidden rounded-lg border border-white/10 bg-ink-900"
-      style={{ width, height }}
-    >
-      <canvas
-        width={canvas.width}
-        height={canvas.height}
-        style={{
-          width: '100%',
-          height: '100%',
-          objectFit: 'contain',
-        }}
-        ref={(el) => {
-          if (el && canvas) {
-            const ctx = el.getContext('2d')
-            if (ctx) ctx.drawImage(canvas, 0, 0)
+    <div className="space-y-3">
+      <div
+        ref={containerRef}
+        className="relative mx-auto touch-none select-none overflow-hidden rounded-lg border border-white/10 bg-ink-900"
+        style={{ width, height }}
+        onPointerMove={moveCorner}
+        onPointerUp={(event) => {
+          dragCornerRef.current = null
+          if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+            event.currentTarget.releasePointerCapture(event.pointerId)
           }
         }}
-      />
-
-      {Object.entries(corners).map(([key, pos]) => (
-        <div
-          key={key}
-          onMouseDown={() => {
-            dragCornerRef.current = key
-          }}
-          className="absolute -translate-x-1/2 -translate-y-1/2 cursor-grab active:cursor-grabbing"
-          style={{
-            left: `${pos[0]}px`,
-            top: `${pos[1]}px`,
-          }}
-        >
-          <div className="flex items-center gap-2">
-            <div className="size-5 rounded-full border-2 border-accent bg-accent/20 shadow-lg" />
-            <span className="text-[8px] font-bold text-accent">{key.slice(0, 3)}</span>
-          </div>
-        </div>
-      ))}
-
-      <svg
-        className="absolute inset-0"
-        style={{ width: '100%', height: '100%', pointerEvents: 'none' }}
+        onPointerCancel={() => {
+          dragCornerRef.current = null
+        }}
       >
-        <line
-          x1={`${(corners.topLeft[0] / canvas.width) * 100}%`}
-          y1={`${(corners.topLeft[1] / canvas.height) * 100}%`}
-          x2={`${(corners.topRight[0] / canvas.width) * 100}%`}
-          y2={`${(corners.topRight[1] / canvas.height) * 100}%`}
-          stroke="rgb(94, 234, 212)"
-          strokeWidth="2"
-          opacity="0.5"
+        <canvas
+          width={canvas.width}
+          height={canvas.height}
+          className="block h-full w-full"
+          ref={(element) => {
+            if (!element) return
+            const context = element.getContext('2d')
+            context?.drawImage(canvas, 0, 0)
+          }}
         />
-        <line
-          x1={`${(corners.topRight[0] / canvas.width) * 100}%`}
-          y1={`${(corners.topRight[1] / canvas.height) * 100}%`}
-          x2={`${(corners.bottomRight[0] / canvas.width) * 100}%`}
-          y2={`${(corners.bottomRight[1] / canvas.height) * 100}%`}
-          stroke="rgb(94, 234, 212)"
-          strokeWidth="2"
-          opacity="0.5"
-        />
-        <line
-          x1={`${(corners.bottomRight[0] / canvas.width) * 100}%`}
-          y1={`${(corners.bottomRight[1] / canvas.height) * 100}%`}
-          x2={`${(corners.bottomLeft[0] / canvas.width) * 100}%`}
-          y2={`${(corners.bottomLeft[1] / canvas.height) * 100}%`}
-          stroke="rgb(94, 234, 212)"
-          strokeWidth="2"
-          opacity="0.5"
-        />
-        <line
-          x1={`${(corners.bottomLeft[0] / canvas.width) * 100}%`}
-          y1={`${(corners.bottomLeft[1] / canvas.height) * 100}%`}
-          x2={`${(corners.topLeft[0] / canvas.width) * 100}%`}
-          y2={`${(corners.topLeft[1] / canvas.height) * 100}%`}
-          stroke="rgb(94, 234, 212)"
-          strokeWidth="2"
-          opacity="0.5"
-        />
-      </svg>
+        <svg
+          viewBox={`0 0 ${canvas.width} ${canvas.height}`}
+          preserveAspectRatio="none"
+          className="pointer-events-none absolute inset-0 h-full w-full"
+        >
+          <polygon
+            points={orderedCorners
+              .map(([x, y]) => `${x},${y}`)
+              .join(',')}
+            fill="rgba(94,234,212,.12)"
+            stroke="rgb(94,234,212)"
+            strokeWidth="2"
+            vectorEffect="non-scaling-stroke"
+          />
+        </svg>
+        {(Object.keys(corners) as Array<keyof EdgePoints>).map((key) => {
+          const [x, y] = corners[key]
+          return (
+            <button
+              key={key}
+              type="button"
+              aria-label={CORNER_LABELS[key]}
+              title={CORNER_LABELS[key]}
+              className="absolute z-10 grid size-8 -translate-x-1/2 -translate-y-1/2 touch-none place-items-center rounded-full border-2 border-accent bg-ink-950/80 shadow-lg"
+              style={{ left: `${(x / canvas.width) * 100}%`, top: `${(y / canvas.height) * 100}%` }}
+              onPointerDown={(event) => {
+                event.preventDefault()
+                event.stopPropagation()
+                dragCornerRef.current = key
+                containerRef.current?.setPointerCapture(event.pointerId)
+              }}
+            >
+              <span className="size-2 rounded-full bg-accent" />
+            </button>
+          )
+        })}
+      </div>
+      <p className="text-center text-[10px] text-ink-500">
+        Geser empat titik ke sudut dokumen yang ingin dipindai.
+      </p>
     </div>
   )
 }
@@ -187,295 +158,286 @@ function ControlsPanel({
   onReset: () => void
 }) {
   return (
-    <div className="space-y-4 rounded-lg border border-white/10 bg-ink-900/50 p-4">
-      <h3 className="text-sm font-semibold text-ink-100">Penyesuaian Dokumen</h3>
-
-      <div className="space-y-3">
-        <SliderField
-          label="Brightness"
-          value={controls.brightness}
-          min={-100}
-          max={100}
-          step={5}
-          display={`${controls.brightness}%`}
-          onChange={(brightness: number) =>
-            onControlChange({ ...controls, brightness })
-          }
-        />
-
-        <SliderField
-          label="Contrast"
-          value={controls.contrast}
-          min={-100}
-          max={100}
-          step={5}
-          display={`${controls.contrast}%`}
-          onChange={(contrast: number) =>
-            onControlChange({ ...controls, contrast })
-          }
-        />
-
-        <SliderField
-          label="Saturation"
-          value={controls.saturation}
-          min={-100}
-          max={100}
-          step={5}
-          display={`${controls.saturation}%`}
-          onChange={(saturation: number) =>
-            onControlChange({ ...controls, saturation })
-          }
-        />
+    <section className="panel space-y-4 p-4">
+      <h2 className="text-[12.5px] font-semibold text-white">Penyesuaian gambar</h2>
+      <SliderField
+        label="Kecerahan"
+        value={controls.brightness}
+        min={-100}
+        max={100}
+        step={5}
+        display={`${controls.brightness}`}
+        onChange={(brightness) => onControlChange({ ...controls, brightness })}
+      />
+      <SliderField
+        label="Kontras"
+        value={controls.contrast}
+        min={-100}
+        max={100}
+        step={5}
+        display={`${controls.contrast}`}
+        onChange={(contrast) => onControlChange({ ...controls, contrast })}
+      />
+      <SliderField
+        label="Saturasi"
+        value={controls.saturation}
+        min={-100}
+        max={100}
+        step={5}
+        display={`${controls.saturation}`}
+        onChange={(saturation) => onControlChange({ ...controls, saturation })}
+      />
+      <div className="space-y-2">
+        <span className="eyebrow">Filter</span>
+        <div className="grid grid-cols-3 gap-1 rounded-xl border border-white/[0.07] bg-ink-950/60 p-1">
+          {[
+            { value: 'color' as const, label: 'Warna' },
+            { value: 'grayscale' as const, label: 'Abu-abu' },
+            { value: 'document' as const, label: 'Dokumen' },
+          ].map((filter) => (
+            <button
+              key={filter.value}
+              type="button"
+              aria-pressed={controls.filter === filter.value}
+              onClick={() => onControlChange({ ...controls, filter: filter.value })}
+              className={`rounded-lg px-1 py-2 text-[10px] font-medium transition ${
+                controls.filter === filter.value
+                  ? 'bg-white/[0.075] text-white'
+                  : 'text-ink-400 hover:bg-white/[0.03] hover:text-ink-200'
+              }`}
+            >
+              {filter.label}
+            </button>
+          ))}
+        </div>
       </div>
-
-      <button
-        type="button"
-        onClick={onReset}
-        className="w-full flex items-center justify-center gap-2 rounded-lg border border-white/10 bg-ink-800 px-3 py-2 text-xs font-semibold text-ink-100 hover:bg-ink-700"
-      >
+      <button type="button" className="btn-ghost w-full" onClick={onReset}>
         <RotateCcw size={12} />
-        Reset Controls
+        Atur ulang
       </button>
-    </div>
+    </section>
   )
 }
 
 export function DocumentScanner() {
-  const [state, setState] = useState<ScanState>({
-    controls: DEFAULT_CONTROLS,
-    mode: 'select',
-  })
+  const [scan, setScan] = useState<ScanState | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const original = scan?.original
+  const controls = scan?.controls
 
-  const handleSourceSelected = async (source: File | HTMLCanvasElement) => {
+  const adjustedCanvas = useMemo(
+    () => (original && controls ? adjustImage(original, controls) : null),
+    [original, controls],
+  )
+
+  async function handleFiles(files: File[]) {
+    const file = files[0]
+    if (!file) return
+    setBusy(true)
+    setError(null)
     try {
-      const canvas =
-        source instanceof File ? await loadImageToCanvas(source) : source
-
-      const corners = autoDetectCorners(canvas)
-      const filename =
-        source instanceof File ? source.name : 'camera-capture.jpg'
-
-      setState((prev) => ({
-        ...prev,
-        original: canvas,
-        corners,
-        filename,
+      const original = await loadImageToCanvas(file)
+      const detection = detectDocumentCorners(original)
+      setScan({
+        original,
+        filename: file.name,
+        corners: detection.corners,
+        autoDetected: detection.detected,
+        controls: DEFAULT_CONTROLS,
         mode: 'adjust',
-        error: undefined,
-      }))
-    } catch (err) {
-      setState((prev) => ({
-        ...prev,
-        error: err instanceof Error ? err.message : 'Failed to load image',
-      }))
+      })
+    } catch (loadError) {
+      setError(errorMessage(loadError))
+    } finally {
+      setBusy(false)
     }
   }
 
-  const handleControlChange = (controls: ScannerControls) => {
-    if (!state.original) return
-
-    setState((prev) => ({
-      ...prev,
-      controls,
-    }))
-
-    const canvas = state.original.cloneNode() as HTMLCanvasElement
-    const ctx = canvas.getContext('2d')
-    if (ctx) {
-      ctx.drawImage(state.original, 0, 0)
-      const adjusted = adjustImage(canvas, controls)
-      setState((prev) => ({
-        ...prev,
-        processed: adjusted,
-        dataUrl: adjusted.toDataURL('image/png'),
-      }))
-    }
-  }
-
-  const handleCornerChange = (corners: EdgePoints) => {
-    setState((prev) => ({
-      ...prev,
-      corners,
-    }))
-  }
-
-  const handleReset = () => {
-    setState((prev) => ({
-      ...prev,
-      controls: DEFAULT_CONTROLS,
-    }))
-  }
-
-  const handleApplyCrop = () => {
-    if (!state.original || !state.corners) return
-
+  function detectAgain() {
+    if (!scan) return
     try {
-      const cropped = cropToCorners(state.original, state.corners)
-      const adjusted = adjustImage(
-        cropped.cloneNode() as HTMLCanvasElement,
-        state.controls
+      const detection = detectDocumentCorners(scan.original)
+      setScan({ ...scan, corners: detection.corners, autoDetected: detection.detected })
+      setError(
+        detection.detected
+          ? null
+          : 'Sudut kertas belum terdeteksi dengan yakin. Coba foto dengan latar yang kontras, atau atur titik secara manual.',
       )
-
-      setState((prev) => ({
-        ...prev,
-        processed: adjusted,
-        dataUrl: adjusted.toDataURL('image/png'),
-        mode: 'preview',
-      }))
-    } catch (err) {
-      setState((prev) => ({
-        ...prev,
-        error: err instanceof Error ? err.message : 'Failed to process document',
-      }))
+    } catch (detectionError) {
+      setError(errorMessage(detectionError))
     }
   }
 
-  const handleDownload = () => {
-    if (!state.dataUrl || !state.filename) return
-
-    const basename = sanitizeBaseName(state.filename)
-    const blob = new Blob(
-      [
-        Uint8Array.from(
-          atob(state.dataUrl.split(',')[1] || ''),
-          (c) => c.charCodeAt(0)
-        ),
-      ],
-      { type: 'image/png' }
-    )
-    downloadBlob(blob, `${basename.split('.')[0]}-scanned.png`)
+  function handleApply() {
+    if (!scan || !adjustedCanvas) return
+    try {
+      const processed = cropToCorners(adjustedCanvas, scan.corners)
+      setScan({ ...scan, processed, mode: 'preview' })
+      setError(null)
+    } catch (processError) {
+      setError(errorMessage(processError))
+    }
   }
 
-  const handleScanNew = () => {
-    setState({
-      controls: DEFAULT_CONTROLS,
-      mode: 'select',
-    })
+  function handleDownload() {
+    if (!scan?.processed) return
+    scan.processed.toBlob((blob) => {
+      if (!blob) {
+        setError('Gambar hasil tidak bisa disimpan. Coba kurangi ukuran gambar.')
+        return
+      }
+      downloadBlob(blob, `${sanitizeBaseName(scan.filename)}-scan.png`)
+    }, 'image/png')
   }
 
-  if (state.mode === 'select') {
-    return (
-      <div className="panel space-y-6">
-        <SourceSelector
-          onUpload={(files: File[]) => {
-            if (files[0]) handleSourceSelected(files[0])
-          }}
-          onCameraCapture={handleSourceSelected}
-          accept="image/jpeg,image/png,image/webp,image/heic"
-        />
+  function resetScan() {
+    setScan(null)
+    setError(null)
+  }
 
-        <div className="space-y-2 rounded-lg border border-white/10 bg-ink-900/30 p-4 text-[12px] text-ink-400">
-          <p className="font-semibold text-ink-200">Alur Scanner:</p>
-          <ul className="space-y-1 list-disc list-inside">
-            <li>Ambil foto atau unggah dokumen</li>
-            <li>Sesuaikan sudut empat pojok dokumen</li>
-            <li>Atur brightness, contrast, saturation</li>
-            <li>Download dokumen terkoreksi sebagai PNG</li>
-            <li>Semua pemrosesan offline di perangkat Anda</li>
-          </ul>
+  return (
+    <div className="animate-fade-up space-y-5">
+      {error ? (
+        <div className="flex items-start gap-2 rounded-xl border border-danger/25 bg-danger/[0.06] px-3.5 py-2.5 text-[11.5px] text-danger">
+          <AlertTriangle size={13} className="mt-px shrink-0" />
+          <span>{error}</span>
         </div>
+      ) : null}
 
-        {state.error && (
-          <div className="flex items-start gap-3 rounded-lg border border-warn/25 bg-warn/[0.06] p-4">
-            <AlertTriangle size={16} className="mt-0.5 shrink-0 text-warn" />
-            <p className="text-sm text-warn">{state.error}</p>
-          </div>
-        )}
-      </div>
-    )
-  }
-
-  if (state.mode === 'adjust' || state.mode === 'preview') {
-    const displayCanvas =
-      state.mode === 'preview' && state.processed
-        ? state.processed
-        : state.original
-
-    return (
-      <div className="space-y-6">
-        <div className="grid gap-6 lg:grid-cols-3">
-          <div className="lg:col-span-2 space-y-4">
-            <div className="rounded-lg border border-white/10 bg-ink-900/30 p-4">
-              <p className="mb-3 text-xs font-semibold text-ink-400">
-                PREVIEW DOKUMEN
-              </p>
-              {displayCanvas && state.corners && (
-                <CanvasPreview
-                  canvas={displayCanvas}
-                  corners={state.corners}
-                  width={Math.min(500, window.innerWidth - 40)}
-                  height={400}
-                  onCornerChange={handleCornerChange}
-                />
-              )}
-            </div>
-
-            {state.mode === 'adjust' && (
-              <button
-                type="button"
-                onClick={handleApplyCrop}
-                className="w-full flex items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-accent to-accent-strong px-4 py-3 text-sm font-semibold text-ink-950 hover:from-accent-bright hover:to-accent transition"
-              >
-                <CheckCircle2 size={16} />
-                Terapkan Koreksi
-              </button>
-            )}
-          </div>
-
-          <div className="space-y-4">
-            {state.mode === 'adjust' && (
-              <ControlsPanel
-                controls={state.controls}
-                onControlChange={handleControlChange}
-                onReset={handleReset}
+      {!scan ? (
+        <div className="grid gap-5 lg:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)]">
+          <div className="panel bg-noise relative overflow-hidden p-2">
+            <div className="pointer-events-none absolute inset-0 grid-lines opacity-30" />
+            <div className="relative">
+              <Dropzone
+                accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
+                icon={ScanLine}
+                title="Pindai dokumen"
+                subtitle="Ambil foto dengan kamera atau pilih gambar dari perangkat"
+                hint="JPG, PNG, WebP · pemrosesan dilakukan di perangkat"
+                busy={busy}
+                onFiles={(files) => void handleFiles(files)}
               />
-            )}
-
-            {state.mode === 'preview' && (
-              <div className="space-y-3">
-                <button
-                  type="button"
-                  onClick={handleDownload}
-                  className="w-full flex items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-accent to-accent-strong px-4 py-3 text-sm font-semibold text-ink-950 hover:from-accent-bright hover:to-accent transition"
-                >
-                  <Download size={16} />
-                  Download PNG
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handleScanNew}
-                  className="w-full flex items-center justify-center gap-2 rounded-lg border border-white/10 bg-ink-800 px-4 py-3 text-sm font-semibold text-ink-100 hover:bg-ink-700 transition"
-                >
-                  <RotateCcw size={16} />
-                  Scan Dokumen Lain
-                </button>
+            </div>
+          </div>
+          <aside className="panel space-y-4 p-5">
+            <div className="flex items-start gap-3">
+              <span className="grid size-9 shrink-0 place-items-center rounded-xl border border-accent/20 bg-accent/[0.08] text-accent">
+                <FileImage size={17} />
+              </span>
+              <div>
+                <h2 className="text-[13px] font-semibold text-white">Pemindai dokumen</h2>
+                <p className="mt-1 text-[11px] leading-relaxed text-ink-400">
+                  Rapikan foto dokumen dengan koreksi perspektif dan penyesuaian gambar.
+                </p>
               </div>
-            )}
-
-            <div className="space-y-2 rounded-lg border border-white/10 bg-ink-900/30 p-3 text-[11px] text-ink-400">
-              <p className="font-semibold text-ink-200">Tips:</p>
-              <ul className="space-y-1">
-                <li>• Gunakan pencahayaan yang terang</li>
-                <li>• Posisikan dokumen lurus ke kamera</li>
-                <li>• Sesuaikan pojok jika perlu koreksi perspektif</li>
-              </ul>
             </div>
-
-            <div className="flex items-center gap-2 rounded-lg border border-accent/25 bg-accent/[0.06] px-3 py-2 text-[11px] text-accent">
-              <Lock size={11} />
-              Pemrosesan lokal · Tidak ada upload
+            <ol className="space-y-2.5 text-[10.5px] text-ink-400">
+              <li>1. Ambil foto atau pilih gambar dokumen.</li>
+              <li>2. Geser empat titik ke sudut dokumen.</li>
+              <li>3. Sesuaikan kecerahan, kontras, dan saturasi.</li>
+              <li>4. Terapkan koreksi dan simpan hasil PNG.</li>
+            </ol>
+            <div className="flex items-center gap-2 rounded-lg border border-white/[0.055] bg-white/[0.02] px-3 py-2">
+              <Lock size={12} className="text-accent/80" />
+              <p className="text-[10px] text-ink-500">Gambar tidak diunggah ke server.</p>
             </div>
-          </div>
+          </aside>
         </div>
+      ) : (
+        <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
+          <section className="panel min-w-0 space-y-4 p-4">
+            <header className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex min-w-0 items-center gap-2">
+                <ScanLine size={14} className="shrink-0 text-accent" />
+                <h2 className="truncate text-[12px] font-semibold text-white">
+                  {scan.mode === 'adjust' ? 'Atur batas dokumen' : 'Hasil pemindaian'}
+                </h2>
+              </div>
+              {scan.mode === 'adjust' ? (
+                <span
+                  className={`text-[10px] ${
+                    scan.autoDetected ? 'text-accent' : 'text-warn'
+                  }`}
+                >
+                  {scan.autoDetected ? 'Sudut terdeteksi' : 'Atur sudut manual'}
+                </span>
+              ) : null}
+              <button type="button" className="btn-ghost !px-2.5 !py-1.5 !text-[10px]" onClick={resetScan}>
+                <RotateCcw size={11} />
+                Pilih gambar lain
+              </button>
+            </header>
+            {scan.mode === 'adjust' && adjustedCanvas ? (
+              <>
+                <DocumentPreview
+                  canvas={adjustedCanvas}
+                  corners={scan.corners}
+                  onCornersChange={(corners) => setScan({ ...scan, corners })}
+                />
+                <button
+                  type="button"
+                  className="btn-ghost w-full"
+                  onClick={detectAgain}
+                >
+                  <ScanLine size={12} />
+                  Deteksi ulang sudut
+                </button>
+                <button type="button" className="btn-primary w-full" onClick={handleApply}>
+                  <Check size={14} />
+                  Terapkan koreksi
+                </button>
+              </>
+            ) : scan.processed ? (
+              <>
+                <div className="checkerboard grid max-h-[70vh] min-h-40 place-items-center overflow-auto rounded-lg p-2">
+                  <canvas
+                    width={scan.processed.width}
+                    height={scan.processed.height}
+                    className="h-auto max-h-[65vh] w-auto max-w-full object-contain"
+                    ref={(element) => {
+                      if (!element) return
+                      element.getContext('2d')?.drawImage(scan.processed!, 0, 0)
+                    }}
+                  />
+                </div>
+                <p className="text-center font-mono text-[10px] text-ink-500">
+                  {scan.processed.width} × {scan.processed.height} px
+                </p>
+              </>
+            ) : null}
+          </section>
 
-        {state.error && (
-          <div className="flex items-start gap-3 rounded-lg border border-warn/25 bg-warn/[0.06] p-4">
-            <AlertTriangle size={16} className="mt-0.5 shrink-0 text-warn" />
-            <p className="text-sm text-warn">{state.error}</p>
-          </div>
-        )}
-      </div>
-    )
-  }
+          <aside className="space-y-4">
+            {scan.mode === 'adjust' ? (
+              <ControlsPanel
+                controls={scan.controls}
+                onControlChange={(controls) => setScan({ ...scan, controls })}
+                onReset={() => setScan({ ...scan, controls: DEFAULT_CONTROLS })}
+              />
+            ) : (
+              <section className="panel space-y-3 p-4">
+                <button type="button" className="btn-primary w-full" onClick={handleDownload}>
+                  <Download size={13} />
+                  Simpan sebagai PNG
+                </button>
+                <button
+                  type="button"
+                  className="btn-ghost w-full"
+                  onClick={() => setScan({ ...scan, mode: 'adjust', processed: undefined })}
+                >
+                  <Upload size={12} />
+                  Kembali mengatur
+                </button>
+              </section>
+            )}
+            <div className="rounded-lg border border-white/[0.055] bg-white/[0.02] px-3 py-2.5 text-[10px] leading-relaxed text-ink-500">
+              Pemindaian berjalan lokal. Hasil disimpan sebagai PNG.
+            </div>
+          </aside>
+        </div>
+      )}
+    </div>
+  )
 }

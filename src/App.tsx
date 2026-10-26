@@ -106,7 +106,7 @@ function ModuleFallback() {
   return (
     <div className="panel flex min-h-[320px] items-center justify-center gap-3 text-[12px] text-ink-400">
       <Loader2 size={18} className="animate-spin text-accent" />
-      Memuat modul PDF…
+      Memuat modul…
     </div>
   )
 }

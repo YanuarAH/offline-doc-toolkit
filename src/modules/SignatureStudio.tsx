@@ -1,21 +1,28 @@
 import { useState } from 'react'
-import { FileImage, PenTool } from 'lucide-react'
+import { FileImage, PenTool, ScanLine } from 'lucide-react'
 import { cn } from '../lib/format'
 import { ImagesToPdf } from './ImagesToPdf'
 import { SignatureStamper } from './SignatureStamper'
+import { DocumentScanner } from './DocumentScanner'
 
-type StudioTab = 'images' | 'signature'
+type StudioTab = 'images' | 'scanner' | 'signature'
 
 const TABS = [
   {
     id: 'images' as const,
-    label: 'Images to PDF',
+    label: 'Gambar ke PDF',
     hint: 'Susun gambar menjadi satu PDF',
     icon: FileImage,
   },
   {
+    id: 'scanner' as const,
+    label: 'Pemindai Dokumen',
+    hint: 'Pindai, luruskan & rapikan',
+    icon: ScanLine,
+  },
+  {
     id: 'signature' as const,
-    label: 'Signature Stamper',
+    label: 'Tanda Tangan PDF',
     hint: 'Tempel tanda tangan ke halaman PDF',
     icon: PenTool,
   },
@@ -26,7 +33,7 @@ export function SignatureStudio() {
 
   return (
     <div className="space-y-5">
-      <div className="grid gap-2 sm:grid-cols-2 lg:max-w-[620px]">
+      <div className="grid gap-2 sm:grid-cols-3 lg:max-w-[900px]">
         {TABS.map((item) => {
           const Icon = item.icon
           const active = tab === item.id
@@ -72,7 +79,13 @@ export function SignatureStudio() {
       </div>
 
       <div key={tab} className="animate-fade-in">
-        {tab === 'images' ? <ImagesToPdf /> : <SignatureStamper />}
+        {tab === 'images' ? (
+          <ImagesToPdf />
+        ) : tab === 'scanner' ? (
+          <DocumentScanner />
+        ) : (
+          <SignatureStamper />
+        )}
       </div>
     </div>
   )

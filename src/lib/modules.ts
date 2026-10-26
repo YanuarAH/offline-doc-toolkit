@@ -1,6 +1,11 @@
 import { Images, Layers, PenTool, Scan, Stamp, type LucideIcon } from 'lucide-react'
 
-export type ModuleId = 'watermark' | 'compressor' | 'background' | 'pdf' | 'signature'
+export type ModuleId =
+  | 'watermark'
+  | 'compressor'
+  | 'background'
+  | 'pdf'
+  | 'signature'
 
 export interface ModuleMeta {
   id: ModuleId
@@ -55,11 +60,11 @@ export const MODULES: ModuleMeta[] = [
   },
   {
     id: 'signature',
-    title: 'Image-to-PDF & Signature Stamper',
-    navLabel: 'PDF & Signature',
-    navHint: 'Image → PDF & tanda tangan',
+    title: 'PDF, Scanner & Tanda Tangan',
+    navLabel: 'PDF Studio',
+    navHint: 'Gambar, scan & tanda tangan',
     description:
-      'Ubah banyak gambar menjadi PDF A4/F4 yang rapi, atau tempel tanda tangan transparan ke halaman PDF dengan posisi dan ukuran yang presisi.',
+      'Ubah gambar menjadi PDF A4/F4, pindai dan luruskan dokumen, atau tempel tanda tangan ke halaman PDF. Semua diproses di perangkat.',
     icon: PenTool,
     tag: 'Sign & Export',
   },
