@@ -1,4 +1,5 @@
 import { useRef, useState, type ChangeEvent, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { Camera, Upload } from 'lucide-react'
 
 interface ImageSourcePickerProps {
@@ -34,7 +35,7 @@ export function ImageSourcePicker({
   return (
     <>
       {children(openPicker)}
-      {open ? (
+      {open ? createPortal(
         <div
           className="fixed inset-0 z-50 grid place-items-center bg-black/65 p-4 backdrop-blur-sm"
           onClick={(event) => {
@@ -49,7 +50,7 @@ export function ImageSourcePicker({
             role="dialog"
             aria-modal="true"
             aria-labelledby="image-source-title"
-            className="w-full max-w-sm rounded-2xl border border-white/[0.1] bg-ink-900 p-4 shadow-2xl"
+            className="max-h-[calc(100dvh-2rem)] w-full max-w-sm overflow-y-auto rounded-2xl border border-white/[0.1] bg-ink-900 p-4 shadow-2xl"
             onClick={(event) => event.stopPropagation()}
             onKeyDown={(event) => {
               event.stopPropagation()
@@ -115,7 +116,8 @@ export function ImageSourcePicker({
               Batal
             </button>
           </section>
-        </div>
+        </div>,
+        document.body,
       ) : null}
       <input
         ref={uploadInputRef}
