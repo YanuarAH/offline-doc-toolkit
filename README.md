@@ -32,6 +32,7 @@ foto KTP dan PDF bertanda tangan tetap berada di memori perangkat Anda.
 | **KTP & ID Card Watermarker** | ✅ | Watermark tiled / single stamp, unduh PNG/JPG resolusi asli |
 | **Batch Image Compressor** | ✅ | WebP/JPEG/PNG, target KB dengan binary search + auto-downscale, ZIP |
 | **Background Remover** | ✅ | AI segmentasi BiRefNet-lite 512 (objek & orang), unduh PNG transparan |
+| **Document Scanner** | ✅ | Pindai banyak gambar, atur tiap halaman, dan ekspor sebagai satu PDF |
 | **PDF Studio** | ✅ | Organizer + compressor Ghostscript WASM 3 level (72/150/300 DPI) |
 | **Image-to-PDF & Signature Stamper** | ✅ | Gambar → PDF A4/F4/Fit, stempel tanda tangan rotation-aware |
 
@@ -49,7 +50,37 @@ foto KTP dan PDF bertanda tangan tetap berada di memori perangkat Anda.
 - **JSZip** — unduhan batch `.zip` pada Modul 2.
 - **onnxruntime-web** — menjalankan model **BiRefNet-lite 512** untuk Background
   Remover langsung di WASM browser. Runtime MIT, model MIT.
+- **Quadscan 1.0.0** — deteksi utama sudut dokumen dengan model LCNet
+  DocAligner; pemrosesan dan inferensi tetap di browser.
 - **vite-plugin-pwa** (Workbox) — service worker, manifest, installable, offline.
+
+## Document Scanner — Quadscan
+
+Quadscan menjadi satu-satunya detektor otomatis. Empat sudut dipakai hanya
+ketika model mengembalikan koordinat. Jika Quadscan tidak mendeteksi dokumen
+atau gagal dimuat, scanner menyediakan batas awal seluruh gambar yang dapat
+disesuaikan manual tanpa menjalankan detektor lain. Koreksi
+perspektif dan filter dapat disesuaikan per halaman. Pilih beberapa foto
+sekaligus atau tambahkan dokumen setelahnya, lalu ekspor semua halaman yang
+telah diproses sesuai urutan unggah sebagai satu PDF A4.
+
+Model LCNet (±4,5 MiB) dibundel Vite langsung dari paket Quadscan, sehingga URL
+model ikut di-hash dan disertakan dalam build deployment. Lisensi
+Quadscan/DocAligner disalin ke aset lokal oleh
+`scripts/copy-quadscan-assets.mjs`. Runtime ONNX/WASM yang digunakan
+bersama Background Remover (±40,7 MiB untuk semua file runtime) disalin oleh
+`scripts/copy-ai-assets.mjs`. Model dan runtime di-cache oleh service worker
+setelah diminta pertama kali, sehingga tidak ada CDN atau unggahan gambar
+eksternal. Quadscan berlisensi MIT; bobot model DocAligner berlisensi Apache-2.0
+(salinan lisensi disertakan dalam build).
+
+Pada browser test, Quadscan memuat model 4,55 MiB, loader JSEP 0,045 MiB, dan
+WASM JSEP 27,04 MiB (sekitar 31,6 MiB pada penggunaan pertama); runtime dasar
+13,6 MiB tetap tersedia lokal untuk Background Remover dan tidak diminta oleh
+jalur Quadscan yang diuji. Runtime Quadscan menggunakan dependency ONNX Runtime
+proyek yang dioverride dari versi yang dideklarasikan library; jalur ini telah
+divalidasi pada browser lokal, namun perubahan versi runtime berikutnya perlu
+diuji ulang.
 
 ## Mulai cepat
 
@@ -62,9 +93,9 @@ npm install
 npm run dev      # http://localhost:5173
 ```
 
-`npm install` menjalankan `scripts/copy-ghostscript.mjs` untuk menyalin
-`gs.js` dan `gs.wasm` dari paket npm ke `public/wasm/`. Script yang sama juga
-berjalan otomatis sebelum `npm run dev` dan `npm run build`.
+`npm install` menjalankan skrip penyiapan aset lokal (Ghostscript,
+runtime/model AI, dan model Quadscan). Aset tersebut juga disiapkan otomatis
+sebelum `npm run dev` dan `npm run build`.
 
 Perintah lain:
 

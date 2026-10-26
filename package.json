@@ -6,10 +6,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "predev": "node scripts/copy-ghostscript.mjs && node scripts/copy-ai-assets.mjs",
+    "predev": "node scripts/copy-ghostscript.mjs && node scripts/copy-ai-assets.mjs && node scripts/copy-quadscan-assets.mjs",
     "build": "tsc -b && vite build",
-    "prebuild": "node scripts/copy-ghostscript.mjs && node scripts/copy-ai-assets.mjs",
-    "postinstall": "node scripts/copy-ghostscript.mjs && node scripts/copy-ai-assets.mjs",
+    "prebuild": "node scripts/copy-ghostscript.mjs && node scripts/copy-ai-assets.mjs && node scripts/copy-quadscan-assets.mjs",
+    "postinstall": "node scripts/copy-ghostscript.mjs && node scripts/copy-ai-assets.mjs && node scripts/copy-quadscan-assets.mjs",
     "lint": "oxlint src",
     "preview": "vite preview",
     "model:fetch": "node scripts/copy-ai-assets.mjs --force-model"
@@ -24,8 +24,14 @@
     "onnxruntime-web": "1.31.0-dev.20260914-8d85527a0",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^6.4.299",
+    "quadscan": "1.0.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1"
+  },
+  "overrides": {
+    "quadscan": {
+      "onnxruntime-web": "$onnxruntime-web"
+    }
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",

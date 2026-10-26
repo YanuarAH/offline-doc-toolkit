@@ -26,7 +26,12 @@ import { fileURLToPath } from 'node:url'
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const forceModel = process.argv.includes('--force-model')
 
-const ORT_FILES = ['ort-wasm-simd-threaded.mjs', 'ort-wasm-simd-threaded.wasm']
+const ORT_FILES = [
+  'ort-wasm-simd-threaded.mjs',
+  'ort-wasm-simd-threaded.wasm',
+  'ort-wasm-simd-threaded.jsep.mjs',
+  'ort-wasm-simd-threaded.jsep.wasm',
+]
 
 const MODEL = {
   repo: 'JONNYVERSE/birefnet-lite-512',
@@ -70,9 +75,14 @@ function copyOrtRuntime() {
     if (!upToDate) copyFileSync(source, target)
   }
 
-  const wasm = resolve(ortTargetDir, ORT_FILES[1])
-  if (existsSync(wasm)) {
-    console.log(`[ai] public/ort siap (onnxruntime wasm ${megabytes(statSync(wasm).size)}).`)
+  const runtimeBytes = ORT_FILES.reduce((total, file) => {
+    const target = resolve(ortTargetDir, file)
+    return total + (existsSync(target) ? statSync(target).size : 0)
+  }, 0)
+  if (runtimeBytes > 0) {
+    console.log(
+      `[ai] public/ort siap (onnxruntime runtime ${megabytes(runtimeBytes)}).`,
+    )
   }
 }
 

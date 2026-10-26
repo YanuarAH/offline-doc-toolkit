@@ -131,3 +131,44 @@ export async function buildImagesPdf(
 
   return await pdf.save()
 }
+
+export async function buildScannedPagesPdf(
+  canvases: HTMLCanvasElement[],
+  onProgress?: (done: number, total: number) => void,
+): Promise<Uint8Array> {
+  if (canvases.length === 0) throw new Error('Tambahkan minimal satu hasil scan.')
+
+  const pdf = await PDFDocument.create()
+
+  for (let index = 0; index < canvases.length; index += 1) {
+    const canvas = canvases[index]
+    if (canvas.width < 1 || canvas.height < 1) {
+      throw new Error(`Hasil scan halaman ${index + 1} tidak valid.`)
+    }
+
+    const blob = await canvasToBlob(canvas, 'image/jpeg', JPEG_QUALITY)
+    const image = await pdf.embedJpg(new Uint8Array(await blob.arrayBuffer()))
+    const landscape = canvas.width > canvas.height
+    const pageWidth = landscape ? PAPER_SIZES.a4[1] : PAPER_SIZES.a4[0]
+    const pageHeight = landscape ? PAPER_SIZES.a4[0] : PAPER_SIZES.a4[1]
+    const scale = Math.min(pageWidth / canvas.width, pageHeight / canvas.height)
+    const width = canvas.width * scale
+    const height = canvas.height * scale
+    const page = pdf.addPage([pageWidth, pageHeight])
+
+    page.drawImage(image, {
+      x: (pageWidth - width) / 2,
+      y: (pageHeight - height) / 2,
+      width,
+      height,
+    })
+    onProgress?.(index + 1, canvases.length)
+  }
+
+  pdf.setTitle('LocalKit — Document Scanner')
+  pdf.setSubject('Dipindai secara lokal dengan LocalKit')
+  pdf.setCreator('LocalKit (client-side)')
+  pdf.setProducer('LocalKit · pdf-lib')
+
+  return await pdf.save()
+}

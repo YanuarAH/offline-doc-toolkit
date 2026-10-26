@@ -1,7 +1,36 @@
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
-import { defineConfig } from 'vite'
+import { createReadStream, existsSync } from 'node:fs'
+import { resolve } from 'node:path'
+import { defineConfig, type Plugin } from 'vite'
 import { VitePWA } from 'vite-plugin-pwa'
+
+const onnxRuntimeModules = new Set([
+  'ort-wasm-simd-threaded.mjs',
+  'ort-wasm-simd-threaded.jsep.mjs',
+])
+
+function serveLocalOnnxRuntimeModules(): Plugin {
+  return {
+    name: 'localkit-local-onnx-runtime-modules',
+    configureServer(server) {
+      server.middlewares.use((request, response, next) => {
+        const pathname = request.url?.split('?')[0] ?? ''
+        if (!pathname.startsWith('/ort/')) return next()
+
+        const filename = pathname.slice('/ort/'.length)
+        if (!onnxRuntimeModules.has(filename)) return next()
+
+        const runtimePath = resolve(process.cwd(), 'public', 'ort', filename)
+        if (!existsSync(runtimePath)) return next()
+
+        response.setHeader('Content-Type', 'text/javascript; charset=utf-8')
+        response.setHeader('Cache-Control', 'no-store')
+        createReadStream(runtimePath).pipe(response)
+      })
+    },
+  }
+}
 
 // Local-first by design: everything ships as static assets, no backend, no API keys.
 export default defineConfig({
@@ -17,6 +46,7 @@ export default defineConfig({
     conditions: ['onnxruntime-web-use-extern-wasm'],
   },
   plugins: [
+    serveLocalOnnxRuntimeModules(),
     react(),
     tailwindcss(),
     VitePWA({
@@ -75,12 +105,11 @@ export default defineConfig({
           '**/ort/**',
           '**/models/**',
         ],
-        // Model AI (±7 MB) + ONNX Runtime wasm (±14 MB) tidak ikut precache:
-        // baru diambil saat fitur Background Remover dipakai pertama kali, lalu
-        // disimpan Cache-First agar pemakaian berikutnya jalan tanpa internet.
+        // Model AI dan ONNX Runtime wasm tidak ikut precache: aset dilayani
+        // lokal saat fitur terkait dipakai lalu disimpan Cache-First.
         runtimeCaching: [
           {
-            urlPattern: /\/models\/.*\.(onnx|json)$/i,
+            urlPattern: /\/(?:models|assets)\/.*\.(onnx|json)$/i,
             handler: 'CacheFirst',
             options: {
               cacheName: 'localkit-ai-model',

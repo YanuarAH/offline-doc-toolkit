@@ -1,41 +1,58 @@
-import { useMemo, useRef, useState, type PointerEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type PointerEvent } from 'react'
 import {
   AlertTriangle,
   Check,
+  ChevronLeft,
+  ChevronRight,
   Download,
   FileImage,
+  FilePlus2,
   Lock,
   RotateCcw,
   ScanLine,
+  Trash2,
   Upload,
 } from 'lucide-react'
+import { Quadscan, type CornerPoints } from 'quadscan'
+import quadscanModelUrl from 'quadscan/models/lcnet?url'
 import { Dropzone } from '../components/Dropzone'
 import { SliderField } from '../components/Controls'
 import {
   adjustImage,
   cropToCorners,
-  detectDocumentCorners,
+  createFallbackDocumentCorners,
   loadImageToCanvas,
   type EdgePoints,
   type ScannerControls,
 } from '../lib/documentScanner'
-import { downloadBlob, errorMessage, sanitizeBaseName } from '../lib/format'
+import { buildScannedPagesPdf } from '../lib/imagesToPdf'
+import {
+  compactDay,
+  downloadBlob,
+  errorMessage,
+} from '../lib/format'
 
-interface ScanState {
+interface ScanPage {
   original: HTMLCanvasElement
   processed?: HTMLCanvasElement
   filename: string
   corners: EdgePoints
   autoDetected: boolean
+  detectionMessage: string | null
   controls: ScannerControls
   mode: 'adjust' | 'preview'
+}
+
+interface QuadscanDetection {
+  message: string
+  corners: EdgePoints | null
 }
 
 const DEFAULT_CONTROLS: ScannerControls = {
   brightness: 0,
   contrast: 0,
   saturation: 0,
-  filter: 'color',
+  filter: 'auto',
 }
 
 const CORNER_LABELS: Record<keyof EdgePoints, string> = {
@@ -64,6 +81,15 @@ type DragTarget =
       startCorners: EdgePoints
     }
 
+function quadscanCornersToEdgePoints(corners: CornerPoints): EdgePoints {
+  return {
+    topLeft: [corners.topLeft.x, corners.topLeft.y],
+    topRight: [corners.topRight.x, corners.topRight.y],
+    bottomRight: [corners.bottomRight.x, corners.bottomRight.y],
+    bottomLeft: [corners.bottomLeft.x, corners.bottomLeft.y],
+  }
+}
+
 function DocumentPreview({
   canvas,
   corners,
@@ -74,6 +100,7 @@ function DocumentPreview({
   onCornersChange: (corners: EdgePoints) => void
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
   const dragTargetRef = useRef<DragTarget | null>(null)
   const maxWidth = Math.max(1, Math.min(680, window.innerWidth - 64))
   const scale = Math.min(1, maxWidth / canvas.width, 540 / canvas.height)
@@ -88,9 +115,9 @@ function DocumentPreview({
 
   function moveCorner(event: PointerEvent<HTMLDivElement>) {
     const dragTarget = dragTargetRef.current
-    const container = containerRef.current
-    if (!dragTarget || !container) return
-    const rect = container.getBoundingClientRect()
+    const preview = canvasRef.current
+    if (!dragTarget || !preview) return
+    const rect = preview.getBoundingClientRect()
     const x = Math.max(0, Math.min(canvas.width, ((event.clientX - rect.left) / rect.width) * canvas.width))
     const y = Math.max(0, Math.min(canvas.height, ((event.clientY - rect.top) / rect.height) * canvas.height))
     if (dragTarget.kind === 'corner') {
@@ -144,6 +171,7 @@ function DocumentPreview({
           className="block h-full w-full"
           ref={(element) => {
             if (!element) return
+            canvasRef.current = element
             const context = element.getContext('2d')
             context?.drawImage(canvas, 0, 0)
           }}
@@ -211,9 +239,9 @@ function DocumentPreview({
           )
         })}
       </div>
-      <p className="text-center text-[10px] text-ink-500">
-        Geser titik sudut atau pegangan di tengah sisi untuk menyesuaikan batas dokumen.
-      </p>
+      <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-[10px] text-ink-500">
+        <p>Geser titik sudut atau pegangan di tengah sisi untuk menyesuaikan batas dokumen.</p>
+      </div>
     </div>
   )
 }
@@ -259,11 +287,13 @@ function ControlsPanel({
       />
       <div className="space-y-2">
         <span className="eyebrow">Filter</span>
-        <div className="grid grid-cols-3 gap-1 rounded-xl border border-white/[0.07] bg-ink-950/60 p-1">
+        <div className="grid grid-cols-2 gap-1 rounded-xl border border-white/[0.07] bg-ink-950/60 p-1">
           {[
-            { value: 'color' as const, label: 'Warna' },
+            { value: 'auto' as const, label: 'Otomatis' },
+            { value: 'color' as const, label: 'Asli' },
+            { value: 'enhanced' as const, label: 'Warna cerah' },
             { value: 'grayscale' as const, label: 'Abu-abu' },
-            { value: 'document' as const, label: 'Dokumen' },
+            { value: 'document' as const, label: 'Hitam-putih' },
           ].map((filter) => (
             <button
               key={filter.value}
@@ -290,9 +320,16 @@ function ControlsPanel({
 }
 
 export function DocumentScanner() {
-  const [scan, setScan] = useState<ScanState | null>(null)
+  const [pages, setPages] = useState<ScanPage[]>([])
+  const [activeIndex, setActiveIndex] = useState(0)
   const [busy, setBusy] = useState(false)
+  const [busyMessage, setBusyMessage] = useState('')
+  const [exporting, setExporting] = useState(false)
+  const [exportProgress, setExportProgress] = useState(0)
   const [error, setError] = useState<string | null>(null)
+  const requestIdRef = useRef(0)
+  const quadscanRef = useRef<Quadscan | null>(null)
+  const scan = pages[activeIndex] ?? null
   const original = scan?.original
   const controls = scan?.controls
 
@@ -301,41 +338,119 @@ export function DocumentScanner() {
     [original, controls],
   )
 
-  async function handleFiles(files: File[]) {
-    const file = files[0]
-    if (!file) return
-    setBusy(true)
-    setError(null)
+  useEffect(
+    () => () => {
+      requestIdRef.current += 1
+      quadscanRef.current?.dispose()
+      quadscanRef.current = null
+    },
+    [],
+  )
+
+  async function runQuadscanDetection(
+    source: HTMLCanvasElement,
+  ): Promise<QuadscanDetection> {
     try {
-      const original = await loadImageToCanvas(file)
-      const detection = detectDocumentCorners(original)
-      setScan({
-        original,
-        filename: file.name,
-        corners: detection.corners,
-        autoDetected: detection.detected,
-        controls: DEFAULT_CONTROLS,
-        mode: 'adjust',
+      const quadscan =
+        quadscanRef.current ??
+        new Quadscan({
+          modelUrl: quadscanModelUrl,
+          wasmPaths: `${import.meta.env.BASE_URL}ort/`,
+          executionProviders: ['wasm'],
+        })
+      quadscanRef.current = quadscan
+      const result = await quadscan.scan(source, {
+        mode: 'detect',
+        minDetectionConfidence: 0,
       })
-    } catch (loadError) {
-      setError(errorMessage(loadError))
-    } finally {
-      setBusy(false)
+      return {
+        message: result.corners ? '' : 'Quadscan tidak memberikan koordinat sudut.',
+        corners: result.corners ? quadscanCornersToEdgePoints(result.corners) : null,
+      }
+    } catch (detectionError) {
+      return {
+        message: `Deteksi otomatis Quadscan gagal: ${errorMessage(detectionError)}`,
+        corners: null,
+      }
     }
   }
 
-  function detectAgain() {
+  async function handleFiles(files: File[]) {
+    if (files.length === 0) return
+    const requestId = ++requestIdRef.current
+    setBusy(true)
+    setError(null)
+    const importedPages: ScanPage[] = []
+    const failures: string[] = []
+    const startIndex = pages.length
+
+    for (let index = 0; index < files.length; index += 1) {
+      if (requestId !== requestIdRef.current) return
+      const file = files[index]
+      setBusyMessage(`Menyiapkan dokumen ${index + 1} dari ${files.length}…`)
+      try {
+        const image = await loadImageToCanvas(file)
+        if (requestId !== requestIdRef.current) return
+        const detection = await runQuadscanDetection(image)
+        if (requestId !== requestIdRef.current) return
+        const detected = detection.corners !== null
+        importedPages.push({
+          original: image,
+          filename: file.name,
+          corners:
+            detection.corners ??
+            createFallbackDocumentCorners(image.width, image.height),
+          autoDetected: detected,
+          detectionMessage: detected ? null : detection.message,
+          controls: DEFAULT_CONTROLS,
+          mode: 'adjust',
+        })
+      } catch (loadError) {
+        failures.push(`${file.name}: ${errorMessage(loadError)}`)
+      }
+    }
+    if (requestId !== requestIdRef.current) return
+    if (importedPages.length > 0) {
+      setPages((current) => [...current, ...importedPages])
+      setActiveIndex(startIndex)
+    }
+    setError(failures.length > 0 ? failures.join(' · ') : null)
+    setBusy(false)
+    setBusyMessage('')
+  }
+
+  async function detectAgain() {
     if (!scan) return
+    const requestId = ++requestIdRef.current
+    setBusy(true)
+    setError(null)
     try {
-      const detection = detectDocumentCorners(scan.original)
-      setScan({ ...scan, corners: detection.corners, autoDetected: detection.detected })
-      setError(
-        detection.detected
-          ? null
-          : 'Sudut kertas belum terdeteksi dengan yakin. Coba foto dengan latar yang kontras, atau atur titik secara manual.',
+      const quadscanResult = await runQuadscanDetection(scan.original)
+      if (requestId !== requestIdRef.current) return
+      const detected = quadscanResult.corners !== null
+      setPages((current) =>
+        current.map((page, index) =>
+          index === activeIndex && page.original === scan.original
+            ? {
+                ...page,
+              corners:
+                quadscanResult.corners ??
+                createFallbackDocumentCorners(
+                  page.original.width,
+                  page.original.height,
+                ),
+              autoDetected: detected,
+              detectionMessage: detected ? null : quadscanResult.message,
+              processed: undefined,
+            }
+            : page,
+        ),
       )
+      setError(null)
     } catch (detectionError) {
-      setError(errorMessage(detectionError))
+      if (requestId === requestIdRef.current) setError(errorMessage(detectionError))
+    } finally {
+      if (requestId === requestIdRef.current) setBusy(false)
     }
   }
 
@@ -343,27 +458,64 @@ export function DocumentScanner() {
     if (!scan || !adjustedCanvas) return
     try {
       const processed = cropToCorners(adjustedCanvas, scan.corners)
-      setScan({ ...scan, processed, mode: 'preview' })
+      setPages((current) =>
+        current.map((page, index) =>
+          index === activeIndex ? { ...page, processed, mode: 'preview' } : page,
+        ),
+      )
+      const nextUnprocessed = pages.findIndex(
+        (page, index) => index > activeIndex && !page.processed,
+      )
+      if (nextUnprocessed >= 0) setActiveIndex(nextUnprocessed)
       setError(null)
     } catch (processError) {
       setError(errorMessage(processError))
     }
   }
 
-  function handleDownload() {
-    if (!scan?.processed) return
-    scan.processed.toBlob((blob) => {
-      if (!blob) {
-        setError('Gambar hasil tidak bisa disimpan. Coba kurangi ukuran gambar.')
-        return
-      }
-      downloadBlob(blob, `${sanitizeBaseName(scan.filename)}-scan.png`)
-    }, 'image/png')
+  async function handleExportPdf() {
+    if (pages.length === 0 || pages.some((page) => !page.processed) || exporting) return
+    setExporting(true)
+    setExportProgress(0)
+    setError(null)
+    try {
+      const bytes = await buildScannedPagesPdf(
+        pages.flatMap((page) => (page.processed ? [page.processed] : [])),
+        (done, total) => setExportProgress(Math.round((done / total) * 100)),
+      )
+      const blob = new Blob([new Uint8Array(bytes)], { type: 'application/pdf' })
+      downloadBlob(blob, `localkit-scan-${compactDay(new Date())}.pdf`)
+    } catch (exportError) {
+      setError(errorMessage(exportError))
+    } finally {
+      setExporting(false)
+      setExportProgress(0)
+    }
   }
 
   function resetScan() {
-    setScan(null)
+    requestIdRef.current += 1
+    setBusy(false)
+    setBusyMessage('')
+    setPages([])
+    setActiveIndex(0)
     setError(null)
+  }
+
+  function removeCurrentPage() {
+    if (busy || !scan) return
+    const nextPages = pages.filter((_, index) => index !== activeIndex)
+    setPages(nextPages)
+    setActiveIndex(Math.min(activeIndex, nextPages.length - 1))
+    setError(null)
+  }
+
+  function updateCurrentPage(updates: Partial<ScanPage>) {
+    setPages((current) =>
+      current.map((page, index) =>
+        index === activeIndex ? { ...page, ...updates } : page,
+      ),
+    )
   }
 
   return (
@@ -385,10 +537,14 @@ export function DocumentScanner() {
                 icon={ScanLine}
                 title="Pindai dokumen"
                 subtitle="Ambil foto dengan kamera atau pilih gambar dari perangkat"
-                hint="JPG, PNG, WebP · pemrosesan dilakukan di perangkat"
+                hint="Pilih beberapa foto sekaligus · JPG, PNG, WebP"
+                multiple
                 busy={busy}
                 onFiles={(files) => void handleFiles(files)}
               />
+              {busy ? (
+                <p className="py-3 text-center text-[11px] text-ink-400">{busyMessage}</p>
+              ) : null}
             </div>
           </div>
           <aside className="panel space-y-4 p-5">
@@ -399,15 +555,15 @@ export function DocumentScanner() {
               <div>
                 <h2 className="text-[13px] font-semibold text-white">Pemindai dokumen</h2>
                 <p className="mt-1 text-[11px] leading-relaxed text-ink-400">
-                  Rapikan foto dokumen dengan koreksi perspektif dan penyesuaian gambar.
+                  Pindai beberapa foto, rapikan tiap halaman, lalu simpan menjadi satu PDF.
                 </p>
               </div>
             </div>
             <ol className="space-y-2.5 text-[10.5px] text-ink-400">
-              <li>1. Ambil foto atau pilih gambar dokumen.</li>
-              <li>2. Geser empat titik ke sudut dokumen.</li>
-              <li>3. Sesuaikan kecerahan, kontras, dan saturasi.</li>
-              <li>4. Terapkan koreksi dan simpan hasil PNG.</li>
+              <li>1. Pilih atau ambil beberapa foto dokumen sekaligus.</li>
+              <li>2. Periksa sudut dan filter untuk tiap halaman.</li>
+              <li>3. Terapkan koreksi pada setiap halaman.</li>
+              <li>4. Simpan seluruh hasil sebagai satu PDF.</li>
             </ol>
             <div className="flex items-center gap-2 rounded-lg border border-white/[0.055] bg-white/[0.02] px-3 py-2">
               <Lock size={12} className="text-accent/80" />
@@ -416,7 +572,66 @@ export function DocumentScanner() {
           </aside>
         </div>
       ) : (
-        <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-2">
+              <button
+                type="button"
+                className="icon-btn size-8"
+                aria-label="Dokumen sebelumnya"
+                disabled={activeIndex === 0 || busy || exporting}
+                onClick={() => setActiveIndex((index) => Math.max(0, index - 1))}
+              >
+                <ChevronLeft size={14} />
+              </button>
+              <div className="min-w-0">
+                <p className="text-[11px] font-semibold text-white">
+                  Dokumen {activeIndex + 1} dari {pages.length}
+                  <span className="ml-2 font-normal text-ink-500">
+                    · {pages.filter((page) => page.processed).length} selesai
+                  </span>
+                </p>
+                <p className="max-w-[60vw] truncate text-[10px] text-ink-400">
+                  {scan.filename}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="icon-btn size-8"
+                aria-label="Dokumen berikutnya"
+                disabled={activeIndex >= pages.length - 1 || busy || exporting}
+                onClick={() =>
+                  setActiveIndex((index) => Math.min(pages.length - 1, index + 1))
+                }
+              >
+                <ChevronRight size={14} />
+              </button>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className="btn-ghost !px-2.5 !py-1.5 !text-[10px]"
+                onClick={removeCurrentPage}
+                disabled={busy || exporting}
+              >
+                <Trash2 size={11} />
+                Hapus halaman
+              </button>
+              <button
+                type="button"
+                className="btn-ghost !px-2.5 !py-1.5 !text-[10px]"
+                onClick={resetScan}
+                disabled={busy || exporting}
+              >
+                <RotateCcw size={11} />
+                Hapus semua
+              </button>
+            </div>
+          </div>
+          {busy ? (
+            <p className="text-center text-[11px] text-ink-400">{busyMessage}</p>
+          ) : null}
+          <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
           <section className="panel min-w-0 space-y-4 p-4">
             <header className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex min-w-0 items-center gap-2">
@@ -431,32 +646,40 @@ export function DocumentScanner() {
                     scan.autoDetected ? 'text-accent' : 'text-warn'
                   }`}
                 >
-                  {scan.autoDetected ? 'Sudut terdeteksi' : 'Atur sudut manual'}
+                  {scan.autoDetected ? 'Sudut Quadscan' : 'Batas awal seluruh gambar'}
                 </span>
               ) : null}
-              <button type="button" className="btn-ghost !px-2.5 !py-1.5 !text-[10px]" onClick={resetScan}>
-                <RotateCcw size={11} />
-                Pilih gambar lain
-              </button>
             </header>
             {scan.mode === 'adjust' && adjustedCanvas ? (
               <>
                 <DocumentPreview
                   canvas={adjustedCanvas}
                   corners={scan.corners}
-                  onCornersChange={(corners) => setScan({ ...scan, corners })}
+                  onCornersChange={(corners) => updateCurrentPage({ corners })}
                 />
+                {!scan.autoDetected ? (
+                  <p className="text-[10px] leading-relaxed text-warn">
+                    {scan.detectionMessage} Batas awal mencakup seluruh gambar; sesuaikan
+                    sudut bila perlu atau langsung terapkan koreksi.
+                  </p>
+                ) : null}
                 <button
                   type="button"
                   className="btn-ghost w-full"
-                  onClick={detectAgain}
+                  onClick={() => void detectAgain()}
+                  disabled={busy || exporting}
                 >
-                  <ScanLine size={12} />
-                  Deteksi ulang sudut
+                  <ScanLine size={12} className={busy ? 'animate-pulse' : undefined} />
+                  {busy ? 'Mendeteksi ulang…' : 'Deteksi ulang dengan Quadscan'}
                 </button>
-                <button type="button" className="btn-primary w-full" onClick={handleApply}>
+                <button
+                  type="button"
+                  className="btn-primary w-full"
+                  onClick={handleApply}
+                  disabled={busy || exporting}
+                >
                   <Check size={14} />
-                  Terapkan koreksi
+                  Terapkan halaman {activeIndex + 1}
                 </button>
               </>
             ) : scan.processed ? (
@@ -483,29 +706,67 @@ export function DocumentScanner() {
             {scan.mode === 'adjust' ? (
               <ControlsPanel
                 controls={scan.controls}
-                onControlChange={(controls) => setScan({ ...scan, controls })}
-                onReset={() => setScan({ ...scan, controls: DEFAULT_CONTROLS })}
+                onControlChange={(controls) => updateCurrentPage({ controls })}
+                onReset={() => updateCurrentPage({ controls: DEFAULT_CONTROLS })}
               />
-            ) : (
+            ) : null}
+            {scan.mode === 'preview' ? (
               <section className="panel space-y-3 p-4">
-                <button type="button" className="btn-primary w-full" onClick={handleDownload}>
-                  <Download size={13} />
-                  Simpan sebagai PNG
-                </button>
                 <button
                   type="button"
                   className="btn-ghost w-full"
-                  onClick={() => setScan({ ...scan, mode: 'adjust', processed: undefined })}
+                  onClick={() => updateCurrentPage({ mode: 'adjust', processed: undefined })}
+                  disabled={exporting}
                 >
                   <Upload size={12} />
-                  Kembali mengatur
+                  Atur ulang halaman ini
                 </button>
               </section>
-            )}
+            ) : null}
+            <section className="panel space-y-3 p-3">
+              <Dropzone
+                accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
+                icon={FilePlus2}
+                title="Tambah dokumen"
+                subtitle="Pilih satu atau beberapa foto lagi"
+                multiple
+                compact
+                busy={busy || exporting}
+                onFiles={(files) => void handleFiles(files)}
+              />
+              {busy ? (
+                <p className="text-center text-[10px] text-ink-400">{busyMessage}</p>
+              ) : null}
+            </section>
+            <section className="panel space-y-3 p-4">
+              <p className="text-[10px] leading-relaxed text-ink-400">
+                {pages.filter((page) => page.processed).length} dari {pages.length} halaman
+                siap digabung menjadi satu PDF.
+              </p>
+              <button
+                type="button"
+                className="btn-primary w-full"
+                onClick={() => void handleExportPdf()}
+                disabled={
+                  exporting || pages.length === 0 || pages.some((page) => !page.processed)
+                }
+              >
+                <Download size={13} />
+                {exporting
+                  ? `Membuat PDF… ${exportProgress}%`
+                  : 'Simpan semua sebagai satu PDF'}
+              </button>
+              {pages.some((page) => !page.processed) ? (
+                <p className="text-[9px] leading-relaxed text-ink-500">
+                  Terapkan koreksi pada setiap dokumen sebelum membuat PDF.
+                </p>
+              ) : null}
+            </section>
             <div className="rounded-lg border border-white/[0.055] bg-white/[0.02] px-3 py-2.5 text-[10px] leading-relaxed text-ink-500">
-              Pemindaian berjalan lokal. Hasil disimpan sebagai PNG.
+              Pemindaian dan pembuatan PDF berjalan lokal di perangkat.
             </div>
           </aside>
+        </div>
         </div>
       )}
     </div>
