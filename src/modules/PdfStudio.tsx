@@ -9,14 +9,14 @@ type PdfTab = 'organizer' | 'compress'
 const TABS = [
   {
     id: 'organizer' as const,
-    label: 'Organizer',
-    hint: 'Merge, split, rotate & reorder',
+    label: 'Atur Halaman',
+    hint: 'Gabungkan, pisah, putar, susun ulang',
     icon: Layers,
   },
   {
     id: 'compress' as const,
-    label: 'Compressor',
-    hint: 'Ghostscript WASM · 3 level',
+    label: 'Kompres PDF',
+    hint: 'Ghostscript WASM · 3 tingkat',
     icon: Gauge,
   },
 ]

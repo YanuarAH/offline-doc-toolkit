@@ -13,7 +13,7 @@ export interface PdfQualityPreset {
 export const PDF_QUALITY_PRESETS: Record<PdfQualityPresetId, PdfQualityPreset> = {
   extreme: {
     id: 'extreme',
-    label: 'Extreme Compression',
+    label: 'Kompresi Maksimal',
     subtitle: 'Kualitas rendah · ukuran terkecil',
     dpi: 72,
     setting: 'screen',
@@ -27,7 +27,7 @@ export const PDF_QUALITY_PRESETS: Record<PdfQualityPresetId, PdfQualityPreset> =
   },
   recommended: {
     id: 'recommended',
-    label: 'Recommended Compression',
+    label: 'Kompresi Seimbang',
     subtitle: 'Kualitas bagus · kompresi optimal',
     dpi: 150,
     setting: 'ebook',
@@ -37,7 +37,7 @@ export const PDF_QUALITY_PRESETS: Record<PdfQualityPresetId, PdfQualityPreset> =
   },
   less: {
     id: 'less',
-    label: 'Less Compression',
+    label: 'Kompresi Ringan',
     subtitle: 'Kualitas tinggi · siap cetak',
     dpi: 300,
     setting: 'printer',

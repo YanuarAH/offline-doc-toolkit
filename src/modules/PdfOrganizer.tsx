@@ -554,7 +554,7 @@ export function PdfOrganizer() {
                 <Layers size={17} strokeWidth={1.9} />
               </span>
               <div>
-                <h2 className="text-[13px] font-semibold text-white">PDF Organizer</h2>
+                <h2 className="text-[13px] font-semibold text-white">Atur Halaman PDF</h2>
                 <p className="mt-1 text-[11px] leading-relaxed text-ink-400">
                   Gabungkan beberapa PDF, putar halaman, hapus, lalu susun ulang
                   urutannya secara visual sebelum diekspor.
@@ -566,7 +566,7 @@ export function PdfOrganizer() {
               {[
                 ['01', 'Impor & render', 'pdf.js menggambar thumbnail setiap halaman di browser.'],
                 ['02', 'Susun visual', 'Drag kartu halaman, putar 90°, atau hapus halaman.'],
-                ['03', 'Split & ekspor', 'Ambil semua atau range tertentu, susun ulang dengan pdf-lib.'],
+                ['03', 'Pisahkan & ekspor', 'Ambil semua halaman atau rentang tertentu, lalu susun ulang dengan pdf-lib.'],
               ].map(([step, title, text]) => (
                 <li key={step} className="flex gap-3">
                   <span className="mt-0.5 font-mono text-[9.5px] text-accent/70">{step}</span>
@@ -732,8 +732,8 @@ export function PdfOrganizer() {
                 value={rangeMode}
                 onChange={setRangeMode}
                 options={[
-                  { value: 'all', label: 'Semua halaman', hint: 'Merge & reorder' },
-                  { value: 'range', label: 'Range / split', hint: 'Ambil sebagian' },
+                  { value: 'all', label: 'Semua halaman', hint: 'Gabung & susun ulang' },
+                  { value: 'range', label: 'Rentang halaman', hint: 'Pisahkan sebagian' },
                 ]}
               />
 
@@ -816,7 +816,7 @@ export function PdfOrganizer() {
             </section>
 
             <section className="panel p-4">
-              <p className="eyebrow">Tips split</p>
+              <p className="eyebrow">Tips memisahkan halaman</p>
               <p className="mt-2 text-[10.5px] leading-relaxed text-ink-500">
                 Urutkan halaman terlebih dahulu, lalu pilih range. Nomor range
                 mengikuti urutan visual saat ini — bukan nomor halaman asli.

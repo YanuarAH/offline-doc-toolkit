@@ -231,7 +231,7 @@ export function Watermarker() {
                 onFiles={(files) => {
                   if (files[0]) void handleIncomingFile(files[0])
                 }}
-                title="Tarik foto KTP atau dokumen ke sini"
+                title="Tarik foto atau gambar ke sini"
                 subtitle="Atau upload foto atau ambil langsung dari kamera"
                 hint="JPG, PNG, WebP, HEIC, AVIF · diproses lokal, tanpa upload"
                 busy={loading}
@@ -253,8 +253,8 @@ export function Watermarker() {
               <div>
                 <h2 className="text-[13px] font-semibold text-white">Privasi by design</h2>
                 <p className="mt-1 text-[11px] leading-relaxed text-ink-400">
-                  Dokumen sensitif seperti KTP tidak boleh menyentuh server pihak ketiga. Di
-                  sini semuanya berjalan di memori browser Anda.
+                  Tambahkan watermark pada foto atau gambar tanpa mengirim file ke server
+                  pihak ketiga. Semua proses berlangsung di memori browser Anda.
                 </p>
               </div>
             </div>

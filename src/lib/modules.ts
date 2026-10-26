@@ -20,13 +20,13 @@ export interface ModuleMeta {
 export const MODULES: ModuleMeta[] = [
   {
     id: 'watermark',
-    title: 'KTP & ID Card Watermarker',
+    title: 'Watermark Foto',
     navLabel: 'Watermarker',
-    navHint: 'KTP & dokumen',
+    navHint: 'Foto & gambar',
     description:
-      'Bubuhkan watermark tanggal & kepemilikan pada foto KTP atau dokumen sensitif. Semua rendering terjadi di canvas perangkat Anda.',
+      'Tambahkan watermark teks pada foto atau gambar untuk menandai kepemilikan, status, atau tujuan penggunaan. Semua rendering terjadi di perangkat Anda.',
     icon: Stamp,
-    tag: 'Identity Shield',
+    tag: 'Image Watermark',
   },
   {
     id: 'compressor',
@@ -50,19 +50,19 @@ export const MODULES: ModuleMeta[] = [
   },
   {
     id: 'pdf',
-    title: 'PDF Organizer & Compressor',
+    title: 'Pengatur & Kompresor PDF',
     navLabel: 'PDF Studio',
-    navHint: 'Organize & compress',
+    navHint: 'Atur halaman & perkecil ukuran',
     description:
-      'Gabungkan, split, putar, dan susun ulang halaman PDF secara visual — atau kompres PDF dengan Ghostscript WASM 3 level (72/150/300 DPI). Semua di browser.',
+      'Gabungkan, pisahkan, putar, dan susun ulang halaman PDF — atau perkecil ukuran PDF dengan Ghostscript WASM dalam 3 tingkat (72/150/300 DPI). Semua di browser.',
     icon: Layers,
     tag: 'PDF Studio',
   },
   {
     id: 'signature',
     title: 'PDF, Scanner & Tanda Tangan',
-    navLabel: 'PDF Studio',
-    navHint: 'Gambar, scan & tanda tangan',
+    navLabel: 'PDF & Pemindai',
+    navHint: 'Gambar ke PDF & tanda tangan',
     description:
       'Ubah gambar menjadi PDF A4/F4, pindai dan luruskan dokumen, atau tempel tanda tangan ke halaman PDF. Semua diproses di perangkat.',
     icon: PenTool,
