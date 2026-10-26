@@ -276,7 +276,7 @@ export function BackgroundRemover() {
             <div className="relative">
               <Dropzone
                 icon={ScanLine}
-                actionLabel="Browse Image"
+                actionLabel="Pilih sumber gambar"
                 accept={ACCEPT_ATTRIBUTE}
                 onFiles={(files) => {
                   const file = files[0]
@@ -513,7 +513,7 @@ export function BackgroundRemover() {
                       disabled={busy}
                     >
                       <ImagePlus size={13} />
-                      Change Image
+                      Ganti gambar
                     </button>
                   )}
                 </ImageSourcePicker>
@@ -648,7 +648,7 @@ export function BackgroundRemover() {
                     disabled={busy}
                   >
                     <ImagePlus size={13} />
-                    Change Image
+                    Ganti gambar
                   </button>
                 )}
               </ImageSourcePicker>

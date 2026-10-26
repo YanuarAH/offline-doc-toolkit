@@ -26,13 +26,14 @@ export function Dropzone({
   icon,
   compact = false,
   busy = false,
-  actionLabel = 'Pilih sumber gambar',
+  actionLabel,
 }: DropzoneProps) {
   const inputRef = useRef<HTMLInputElement>(null)
   const dragDepth = useRef(0)
   const [dragging, setDragging] = useState(false)
   const Icon = icon ?? UploadCloud
   const imagePicker = accept.toLowerCase().includes('image/')
+  const pickerActionLabel = actionLabel ?? (imagePicker ? 'Pilih sumber gambar' : 'Pilih file')
 
   const handleDrop = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault()
@@ -142,7 +143,7 @@ export function Dropzone({
       {!compact ? (
         <span className="relative mt-1 inline-flex items-center gap-2 rounded-xl border border-accent/25 bg-accent/[0.08] px-3.5 py-2 text-[11.5px] font-semibold text-accent transition group-hover:border-accent/40 group-hover:bg-accent/[0.12]">
           <ImagePlus size={13} />
-          {actionLabel}
+          {pickerActionLabel}
         </span>
       ) : null}
 
