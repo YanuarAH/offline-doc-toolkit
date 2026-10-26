@@ -134,11 +134,13 @@ export async function buildImagesPdf(
 
 export async function buildScannedPagesPdf(
   canvases: HTMLCanvasElement[],
+  options: ImagePdfOptions,
   onProgress?: (done: number, total: number) => void,
 ): Promise<Uint8Array> {
   if (canvases.length === 0) throw new Error('Tambahkan minimal satu hasil scan.')
 
   const pdf = await PDFDocument.create()
+  const marginPt = Math.max(0, options.marginMm) * MM_TO_PT
 
   for (let index = 0; index < canvases.length; index += 1) {
     const canvas = canvases[index]
@@ -148,17 +150,58 @@ export async function buildScannedPagesPdf(
 
     const blob = await canvasToBlob(canvas, 'image/jpeg', JPEG_QUALITY)
     const image = await pdf.embedJpg(new Uint8Array(await blob.arrayBuffer()))
-    const landscape = canvas.width > canvas.height
-    const pageWidth = landscape ? PAPER_SIZES.a4[1] : PAPER_SIZES.a4[0]
-    const pageHeight = landscape ? PAPER_SIZES.a4[0] : PAPER_SIZES.a4[1]
-    const scale = Math.min(pageWidth / canvas.width, pageHeight / canvas.height)
-    const width = canvas.width * scale
-    const height = canvas.height * scale
+    let pageWidth: number
+    let pageHeight: number
+    let width: number
+    let height: number
+    let x: number
+    let y: number
+
+    if (options.paper === 'fit') {
+      let contentWidth = canvas.width * FIT_PIXEL_TO_PT
+      let contentHeight = canvas.height * FIT_PIXEL_TO_PT
+      const longest = Math.max(contentWidth, contentHeight)
+      if (longest > FIT_MAX_LONG_SIDE) {
+        const factor = FIT_MAX_LONG_SIDE / longest
+        contentWidth *= factor
+        contentHeight *= factor
+      } else if (longest < FIT_MIN_LONG_SIDE) {
+        const factor = FIT_MIN_LONG_SIDE / longest
+        contentWidth *= factor
+        contentHeight *= factor
+      }
+      const fitMargin = Math.min(
+        marginPt,
+        Math.min(contentWidth, contentHeight) * 0.2,
+      )
+      pageWidth = contentWidth + fitMargin * 2
+      pageHeight = contentHeight + fitMargin * 2
+      width = contentWidth
+      height = contentHeight
+      x = fitMargin
+      y = fitMargin
+    } else {
+      const [shortSide, longSide] = PAPER_SIZES[options.paper]
+      pageWidth = options.orientation === 'landscape' ? longSide : shortSide
+      pageHeight = options.orientation === 'landscape' ? shortSide : longSide
+      const safeMargin = Math.min(marginPt, Math.min(pageWidth, pageHeight) * 0.25)
+      const availableWidth = Math.max(1, pageWidth - safeMargin * 2)
+      const availableHeight = Math.max(1, pageHeight - safeMargin * 2)
+      const scale = Math.min(
+        availableWidth / canvas.width,
+        availableHeight / canvas.height,
+      )
+      width = canvas.width * scale
+      height = canvas.height * scale
+      x = (pageWidth - width) / 2
+      y = (pageHeight - height) / 2
+    }
+
     const page = pdf.addPage([pageWidth, pageHeight])
 
     page.drawImage(image, {
-      x: (pageWidth - width) / 2,
-      y: (pageHeight - height) / 2,
+      x,
+      y,
       width,
       height,
     })

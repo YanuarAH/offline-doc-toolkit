@@ -1,3 +1,5 @@
+import { decodeImageFile } from './image'
+
 export interface ScannerControls {
   brightness: number
   contrast: number
@@ -40,6 +42,120 @@ function copyCanvas(source: HTMLCanvasElement): HTMLCanvasElement {
   return canvas
 }
 
+// ---------------------------------------------------------------------------
+// Background estimation helpers — the core technique used by mobile document
+// scanners (Google Drive, CamScanner, Adobe Scan) to remove shadows and
+// normalise uneven lighting across a photographed document.
+// ---------------------------------------------------------------------------
+
+function clamp(value: number): number {
+  return value < 0 ? 0 : value > 255 ? 255 : Math.round(value)
+}
+
+interface BackgroundGrid {
+  r: Float32Array
+  g: Float32Array
+  b: Float32Array
+  w: number
+  h: number
+  blockSize: number
+}
+
+/**
+ * Estimate per-channel background illumination using block-max + smoothing.
+ *
+ * The image is divided into a grid of blocks. For each block the brightest
+ * pixel per channel is recorded (approximating the paper/background colour).
+ * A 3×3 box blur is then applied to the small grid so that the interpolated
+ * background varies smoothly across the image.
+ */
+function computeBackgroundGrid(
+  data: Uint8ClampedArray,
+  width: number,
+  height: number,
+): BackgroundGrid {
+  const blockSize = Math.max(8, Math.round(Math.min(width, height) * 0.065))
+  const gw = Math.ceil(width / blockSize)
+  const gh = Math.ceil(height / blockSize)
+  const size = gw * gh
+
+  const r = new Float32Array(size)
+  const g = new Float32Array(size)
+  const b = new Float32Array(size)
+
+  for (let gy = 0; gy < gh; gy++) {
+    const startY = gy * blockSize
+    const endY = Math.min(startY + blockSize, height)
+    for (let gx = 0; gx < gw; gx++) {
+      const startX = gx * blockSize
+      const endX = Math.min(startX + blockSize, width)
+      let maxR = 0, maxG = 0, maxB = 0
+      for (let y = startY; y < endY; y++) {
+        for (let x = startX; x < endX; x++) {
+          const idx = (y * width + x) * 4
+          if (data[idx] > maxR) maxR = data[idx]
+          if (data[idx + 1] > maxG) maxG = data[idx + 1]
+          if (data[idx + 2] > maxB) maxB = data[idx + 2]
+        }
+      }
+      const gi = gy * gw + gx
+      // Floor at 24 to prevent division-by-near-zero later
+      r[gi] = Math.max(24, maxR)
+      g[gi] = Math.max(24, maxG)
+      b[gi] = Math.max(24, maxB)
+    }
+  }
+
+  return {
+    r: smoothGrid(r, gw, gh),
+    g: smoothGrid(g, gw, gh),
+    b: smoothGrid(b, gw, gh),
+    w: gw, h: gh, blockSize,
+  }
+}
+
+/** 3×3 average blur on the small background grid to reduce block artefacts. */
+function smoothGrid(grid: Float32Array, w: number, h: number): Float32Array {
+  const out = new Float32Array(w * h)
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      let sum = 0, count = 0
+      for (let dy = -1; dy <= 1; dy++) {
+        const ny = y + dy
+        if (ny < 0 || ny >= h) continue
+        for (let dx = -1; dx <= 1; dx++) {
+          const nx = x + dx
+          if (nx < 0 || nx >= w) continue
+          sum += grid[ny * w + nx]
+          count++
+        }
+      }
+      out[y * w + x] = sum / count
+    }
+  }
+  return out
+}
+
+/** Bilinear interpolation of the background grid at pixel (px, py). */
+function sampleBg(
+  grid: Float32Array, gw: number, gh: number, bs: number,
+  px: number, py: number,
+): number {
+  const gxf = Math.max(0, Math.min(gw - 1.001, (px + 0.5) / bs - 0.5))
+  const gyf = Math.max(0, Math.min(gh - 1.001, (py + 0.5) / bs - 0.5))
+  const gx0 = gxf | 0
+  const gy0 = gyf | 0
+  const fx = gxf - gx0
+  const fy = gyf - gy0
+  const i = gy0 * gw + gx0
+  return (1 - fy) * ((1 - fx) * grid[i] + fx * grid[i + 1]) +
+         fy * ((1 - fx) * grid[i + gw] + fx * grid[i + gw + 1])
+}
+
+// ---------------------------------------------------------------------------
+// adjustImage — applies the selected scanner filter + user adjustments
+// ---------------------------------------------------------------------------
+
 export function adjustImage(
   source: HTMLCanvasElement,
   controls: ScannerControls,
@@ -59,143 +175,188 @@ export function adjustImage(
 
   const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
   const data = imageData.data
-  const contrast = (controls.contrast + 100) / 100
-  const saturation =
-    controls.filter === 'grayscale' || controls.filter === 'document'
-      ? 0
-      : (controls.saturation + (controls.filter === 'enhanced' ? 14 : 0) + 100) / 100
+  const width = canvas.width
+  const height = canvas.height
+  const contrastFactor = (controls.contrast + 100) / 100
+  const userSaturation = (controls.saturation + 100) / 100
 
-  for (let i = 0; i < data.length; i += 4) {
-    let r = Math.min(255, Math.max(0, data[i] + controls.brightness))
-    let g = Math.min(255, Math.max(0, data[i + 1] + controls.brightness))
-    let b = Math.min(255, Math.max(0, data[i + 2] + controls.brightness))
-
-    r = Math.min(255, Math.max(0, (r - 128) * contrast + 128))
-    g = Math.min(255, Math.max(0, (g - 128) * contrast + 128))
-    b = Math.min(255, Math.max(0, (b - 128) * contrast + 128))
-
-    const gray = 0.2126 * r + 0.7152 * g + 0.0722 * b
-    data[i] = gray + saturation * (r - gray)
-    data[i + 1] = gray + saturation * (g - gray)
-    data[i + 2] = gray + saturation * (b - gray)
-  }
-
-  if (controls.filter === 'enhanced') {
-    const histogram = new Uint32Array(256)
+  // ── Asli (color) ────────────────────────────────────────────────────────
+  // No background normalisation — just brightness, contrast, and saturation
+  // on the original pixel data.
+  if (controls.filter === 'color') {
     for (let i = 0; i < data.length; i += 4) {
-      const luminance = Math.round(
-        0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2],
-      )
-      histogram[luminance] += 1
+      let r = Math.min(255, Math.max(0, data[i] + controls.brightness))
+      let g = Math.min(255, Math.max(0, data[i + 1] + controls.brightness))
+      let b = Math.min(255, Math.max(0, data[i + 2] + controls.brightness))
+      r = Math.min(255, Math.max(0, (r - 128) * contrastFactor + 128))
+      g = Math.min(255, Math.max(0, (g - 128) * contrastFactor + 128))
+      b = Math.min(255, Math.max(0, (b - 128) * contrastFactor + 128))
+      const gray = 0.2126 * r + 0.7152 * g + 0.0722 * b
+      data[i]     = clamp(gray + userSaturation * (r - gray))
+      data[i + 1] = clamp(gray + userSaturation * (g - gray))
+      data[i + 2] = clamp(gray + userSaturation * (b - gray))
     }
-
-    const pixelCount = data.length / 4
-    const lowTarget = Math.floor(pixelCount * 0.02)
-    const highTarget = Math.floor(pixelCount * 0.98)
-    let low = 0
-    let high = 255
-    let cumulative = 0
-    for (let value = 0; value < histogram.length; value += 1) {
-      cumulative += histogram[value]
-      if (cumulative >= lowTarget) {
-        low = value
-        break
-      }
-    }
-    cumulative = 0
-    for (let value = 0; value < histogram.length; value += 1) {
-      cumulative += histogram[value]
-      if (cumulative >= highTarget) {
-        high = value
-        break
-      }
-    }
-    if (high - low >= 24) {
-      const range = high - low
-      for (let i = 0; i < data.length; i += 4) {
-        const luminance =
-          0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2]
-        const mapped = Math.min(255, Math.max(0, ((luminance - low) / range) * 255))
-        const scale = luminance > 1 ? mapped / luminance : 0
-        data[i] = Math.min(255, data[i] * scale)
-        data[i + 1] = Math.min(255, data[i + 1] * scale)
-        data[i + 2] = Math.min(255, data[i + 2] * scale)
-      }
-    }
+    ctx.putImageData(imageData, 0, 0)
+    return canvas
   }
+
+  // ── Scanner-style filters ───────────────────────────────────────────────
+  // All remaining filters share the same first step: estimate the background
+  // illumination from the *original* pixel data so that uneven lighting and
+  // shadows are removed before any user adjustments are applied.
+  const bg = computeBackgroundGrid(data, width, height)
+  const { r: bgR, g: bgG, b: bgB, w: gw, h: gh, blockSize: bs } = bg
 
   if (controls.filter === 'auto') {
-    const histogram = new Uint32Array(256)
-    for (let i = 0; i < data.length; i += 4) {
-      const luminance = Math.round(
-        0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2],
-      )
-      histogram[luminance] += 1
-    }
+    // ── Otomatis ────────────────────────────────────────────────────────
+    // Normalise against estimated background → white paper, clear text,
+    // natural colours.  Mimics Google Drive / Lens scanner auto mode.
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const i = (y * width + x) * 4
+        const bR = sampleBg(bgR, gw, gh, bs, x, y)
+        const bG = sampleBg(bgG, gw, gh, bs, x, y)
+        const bB = sampleBg(bgB, gw, gh, bs, x, y)
 
-    const pixelCount = data.length / 4
-    const lowTarget = Math.floor(pixelCount * 0.02)
-    const highTarget = Math.floor(pixelCount * 0.99)
-    let low = 0
-    let high = 255
-    let cumulative = 0
-    for (let value = 0; value < histogram.length; value += 1) {
-      cumulative += histogram[value]
-      if (cumulative >= lowTarget) {
-        low = value
-        break
+        // Normalise: pixel / background × targetWhite
+        let r = (data[i]     / bR) * 240
+        let g = (data[i + 1] / bG) * 240
+        let b = (data[i + 2] / bB) * 240
+
+        // User brightness & contrast on top of normalised result
+        r = (r + controls.brightness - 128) * contrastFactor + 128
+        g = (g + controls.brightness - 128) * contrastFactor + 128
+        b = (b + controls.brightness - 128) * contrastFactor + 128
+
+        // Saturation
+        const gray = 0.2126 * r + 0.7152 * g + 0.0722 * b
+        r = gray + userSaturation * (r - gray)
+        g = gray + userSaturation * (g - gray)
+        b = gray + userSaturation * (b - gray)
+
+        // Soft white clamp: push near-white smoothly towards pure white
+        const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b
+        if (lum > 222) {
+          const t = Math.min(1, (lum - 222) / 26)
+          const blend = t * t // quadratic ease for a natural roll-off
+          r += blend * (255 - r)
+          g += blend * (255 - g)
+          b += blend * (255 - b)
+        }
+
+        data[i]     = clamp(r)
+        data[i + 1] = clamp(g)
+        data[i + 2] = clamp(b)
       }
     }
-    cumulative = 0
-    for (let value = 0; value < histogram.length; value += 1) {
-      cumulative += histogram[value]
-      if (cumulative >= highTarget) {
-        high = value
-        break
+  } else if (controls.filter === 'enhanced') {
+    // ── Warna cerah ─────────────────────────────────────────────────────
+    // Like auto but with boosted saturation for vivid, punchy colours.
+    // Great for colourful documents, business cards, and posters.
+    const satBoost = 1.3 + controls.saturation / 200
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const i = (y * width + x) * 4
+        const bR = sampleBg(bgR, gw, gh, bs, x, y)
+        const bG = sampleBg(bgG, gw, gh, bs, x, y)
+        const bB = sampleBg(bgB, gw, gh, bs, x, y)
+
+        let r = (data[i]     / bR) * 240
+        let g = (data[i + 1] / bG) * 240
+        let b = (data[i + 2] / bB) * 240
+
+        r = (r + controls.brightness - 128) * contrastFactor + 128
+        g = (g + controls.brightness - 128) * contrastFactor + 128
+        b = (b + controls.brightness - 128) * contrastFactor + 128
+
+        // Boosted saturation
+        const gray = 0.2126 * r + 0.7152 * g + 0.0722 * b
+        r = gray + satBoost * (r - gray)
+        g = gray + satBoost * (g - gray)
+        b = gray + satBoost * (b - gray)
+
+        const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b
+        if (lum > 218) {
+          const t = Math.min(1, (lum - 218) / 30)
+          const blend = t * t
+          r += blend * (255 - r)
+          g += blend * (255 - g)
+          b += blend * (255 - b)
+        }
+
+        data[i]     = clamp(r)
+        data[i + 1] = clamp(g)
+        data[i + 2] = clamp(b)
+      }
+    }
+  } else if (controls.filter === 'grayscale') {
+    // ── Abu-abu ─────────────────────────────────────────────────────────
+    // Clean grayscale with background normalisation for even tones.
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const i = (y * width + x) * 4
+        const pixGray = 0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2]
+        const bgGray =
+          0.2126 * sampleBg(bgR, gw, gh, bs, x, y) +
+          0.7152 * sampleBg(bgG, gw, gh, bs, x, y) +
+          0.0722 * sampleBg(bgB, gw, gh, bs, x, y)
+
+        let value = (pixGray / bgGray) * 240
+        value = (value + controls.brightness - 128) * contrastFactor + 128
+
+        if (value > 224) {
+          const t = Math.min(1, (value - 224) / 24)
+          value += t * t * (255 - value)
+        }
+
+        const v = clamp(value)
+        data[i]     = v
+        data[i + 1] = v
+        data[i + 2] = v
+      }
+    }
+  } else {
+    // ── Hitam-putih (document) ──────────────────────────────────────────
+    // Two-stage pipeline that produces crisp, photocopy-style B&W output:
+    //   1. Background normalisation → eliminates shadows & uneven lighting
+    //   2. Adaptive threshold on the normalised image → pure B&W
+    // Normalising *before* thresholding is the key insight — it means the
+    // adaptive window only needs to handle small local variations rather
+    // than fighting large-scale illumination gradients.
+    const normalized = new Uint8Array(width * height)
+
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const i = (y * width + x) * 4
+        const pixGray = 0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2]
+        const bgGray =
+          0.2126 * sampleBg(bgR, gw, gh, bs, x, y) +
+          0.7152 * sampleBg(bgG, gw, gh, bs, x, y) +
+          0.0722 * sampleBg(bgB, gw, gh, bs, x, y)
+
+        let value = (pixGray / bgGray) * 240
+        value = (value + controls.brightness - 128) * contrastFactor + 128
+        normalized[y * width + x] = clamp(value)
       }
     }
 
-    if (high - low >= 32) {
-      const range = high - low
-      for (let i = 0; i < data.length; i += 4) {
-        const luminance =
-          0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2]
-        const normalized = Math.max(0, Math.min(1, (luminance - low) / range))
-        const mapped = 12 + normalized * 236
-        const scale = luminance > 1 ? mapped / luminance : 0
-        data[i] = Math.min(255, data[i] * scale)
-        data[i + 1] = Math.min(255, data[i + 1] * scale)
-        data[i + 2] = Math.min(255, data[i + 2] * scale)
-      }
-    }
-  }
-
-  if (controls.filter === 'document') {
-    const width = canvas.width
-    const height = canvas.height
+    // Integral image for fast local mean computation
     const stride = width + 1
-    const luminance = new Uint8Array(width * height)
     const integral = new Uint32Array(stride * (height + 1))
-
-    for (let y = 0; y < height; y += 1) {
+    for (let y = 0; y < height; y++) {
       let rowTotal = 0
-      for (let x = 0; x < width; x += 1) {
-        const pixel = (y * width + x) * 4
-        const gray = Math.round(
-          0.2126 * data[pixel] + 0.7152 * data[pixel + 1] + 0.0722 * data[pixel + 2],
-        )
-        luminance[y * width + x] = gray
-        rowTotal += gray
-        integral[(y + 1) * stride + x + 1] =
-          integral[y * stride + x + 1] + rowTotal
+      for (let x = 0; x < width; x++) {
+        rowTotal += normalized[y * width + x]
+        integral[(y + 1) * stride + x + 1] = integral[y * stride + x + 1] + rowTotal
       }
     }
 
-    const radius = Math.max(12, Math.min(48, Math.round(Math.min(width, height) * 0.025)))
-    for (let y = 0; y < height; y += 1) {
+    // Adaptive threshold — tighter radius works well on normalised input
+    const radius = Math.max(8, Math.min(32, Math.round(Math.min(width, height) * 0.018)))
+    for (let y = 0; y < height; y++) {
       const top = Math.max(0, y - radius)
       const bottom = Math.min(height, y + radius + 1)
-      for (let x = 0; x < width; x += 1) {
+      for (let x = 0; x < width; x++) {
         const left = Math.max(0, x - radius)
         const right = Math.min(width, x + radius + 1)
         const area = (right - left) * (bottom - top)
@@ -205,14 +366,18 @@ export function adjustImage(
           integral[bottom * stride + left] +
           integral[top * stride + left]
         const mean = sum / area
-        const gray = luminance[y * width + x]
-        const inkStrength = Math.max(0, Math.min(1, (mean - gray - 4) / 54))
-        const softenedInk = inkStrength * inkStrength * (3 - 2 * inkStrength)
-        const value = Math.round((1 - softenedInk) * 255)
-        const pixel = (y * width + x) * 4
-        data[pixel] = value
-        data[pixel + 1] = value
-        data[pixel + 2] = value
+        const pixel = normalized[y * width + x]
+
+        // Smoothstep thresholding: ink where pixel is darker than local mean
+        const diff = mean - pixel
+        const inkStrength = Math.max(0, Math.min(1, (diff - 2) / 36))
+        const smoothed = inkStrength * inkStrength * (3 - 2 * inkStrength)
+        const value = Math.round((1 - smoothed) * 255)
+
+        const idx = (y * width + x) * 4
+        data[idx]     = value
+        data[idx + 1] = value
+        data[idx + 2] = value
       }
     }
   }
@@ -383,6 +548,30 @@ export function cropToCorners(
   return perspectiveCorrect(canvas, corners, width, height)
 }
 
+export function rotateCanvas(canvas: HTMLCanvasElement): HTMLCanvasElement {
+  const output = createCanvas(canvas.height, canvas.width)
+  const ctx = output.getContext('2d')
+  if (!ctx) throw new Error('Canvas 2D tidak tersedia di browser ini.')
+  ctx.translate(output.width / 2, output.height / 2)
+  ctx.rotate(Math.PI / 2)
+  ctx.drawImage(canvas, -canvas.width / 2, -canvas.height / 2)
+  return output
+}
+
+export function rotateCornersClockwise(
+  corners: EdgePoints,
+  _oldW: number,
+  oldH: number,
+): EdgePoints {
+  // 90deg clockwise: newX = oldH - y, newY = x
+  return {
+    topLeft: [oldH - corners.bottomLeft[1], corners.bottomLeft[0]],
+    topRight: [oldH - corners.topLeft[1], corners.topLeft[0]],
+    bottomRight: [oldH - corners.topRight[1], corners.topRight[0]],
+    bottomLeft: [oldH - corners.bottomRight[1], corners.bottomRight[0]],
+  }
+}
+
 export async function loadImageToCanvas(
   source: File | HTMLCanvasElement,
 ): Promise<HTMLCanvasElement> {
@@ -398,28 +587,18 @@ export async function loadImageToCanvas(
     return canvas
   }
 
-  const url = URL.createObjectURL(source)
-  const image = new Image()
-  image.decoding = 'async'
-
+  const decoded = await decodeImageFile(source)
   try {
-    await new Promise<void>((resolve, reject) => {
-      image.onload = () => resolve()
-      image.onerror = () => reject(new Error('Gambar tidak bisa dibuka. Pilih file JPG, PNG, atau WebP.'))
-      image.src = url
-    })
-
-    const scale = Math.min(1, MAX_IMAGE_SIDE / Math.max(image.naturalWidth, image.naturalHeight))
+    const scale = Math.min(1, MAX_IMAGE_SIDE / Math.max(decoded.width, decoded.height))
     const canvas = createCanvas(
-      Math.max(1, Math.round(image.naturalWidth * scale)),
-      Math.max(1, Math.round(image.naturalHeight * scale)),
+      Math.max(1, Math.round(decoded.width * scale)),
+      Math.max(1, Math.round(decoded.height * scale)),
     )
     const context = canvas.getContext('2d')
     if (!context) throw new Error('Canvas 2D tidak tersedia di browser ini.')
-    context.drawImage(image, 0, 0, canvas.width, canvas.height)
+    context.drawImage(decoded.source, 0, 0, canvas.width, canvas.height)
     return canvas
   } finally {
-    image.src = ''
-    URL.revokeObjectURL(url)
+    decoded.release()
   }
 }
