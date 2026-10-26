@@ -366,7 +366,7 @@ export function ImagesToPdf() {
                 <FileImage size={17} strokeWidth={1.9} />
               </span>
               <div>
-                <h2 className="text-[13px] font-semibold text-white">Images to PDF</h2>
+                <h2 className="text-[13px] font-semibold text-white">Gambar ke PDF</h2>
                 <p className="mt-1 text-[11px] leading-relaxed text-ink-400">
                   Setiap gambar menjadi satu halaman. Pilih ukuran kertas,
                   orientasi, margin, dan urutan halaman sebelum diekspor.
