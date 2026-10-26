@@ -5,6 +5,7 @@
  * pustaka model baru diimpor saat pengguna menekan "Remove Background".
  */
 import { formatBytes } from './format'
+import { canvasToBlob } from './image'
 import { FORMAT_NAME, detectImageFormat, readFileHead, readImageSize } from './imageFormat'
 import {
   FIRST_LOAD_MB,
@@ -187,4 +188,51 @@ export async function removeBackground(
         : 'Gagal menghapus background. Coba lagi.',
     )
   }
+}
+
+/**
+ * Menggabungkan warna latar solid di belakang gambar transparan, lalu
+ * mengonversinya menjadi Blob (PNG atau JPEG).
+ */
+export async function applyBackgroundColor(
+  transparentBlob: Blob,
+  width: number,
+  height: number,
+  color: string,
+  format: 'png' | 'jpeg' = 'png',
+  quality = 0.95,
+): Promise<Blob> {
+  const canvas = document.createElement('canvas')
+  canvas.width = width
+  canvas.height = height
+  const ctx = canvas.getContext('2d')
+  if (!ctx) throw new Error('Canvas 2D tidak tersedia di browser ini.')
+
+  ctx.fillStyle = color
+  ctx.fillRect(0, 0, width, height)
+
+  if (typeof createImageBitmap === 'function') {
+    const bitmap = await createImageBitmap(transparentBlob)
+    try {
+      ctx.drawImage(bitmap, 0, 0, width, height)
+    } finally {
+      bitmap.close()
+    }
+  } else {
+    const url = URL.createObjectURL(transparentBlob)
+    const img = new Image()
+    try {
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve()
+        img.onerror = () => reject(new Error('Gagal merender gambar transparan.'))
+        img.src = url
+      })
+      ctx.drawImage(img, 0, 0, width, height)
+    } finally {
+      URL.revokeObjectURL(url)
+    }
+  }
+
+  const mime = format === 'jpeg' ? 'image/jpeg' : 'image/png'
+  return await canvasToBlob(canvas, mime, format === 'jpeg' ? quality : undefined)
 }

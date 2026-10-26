@@ -9,6 +9,7 @@ import {
   ImagePlus,
   Loader2,
   Lock,
+  Palette,
   RotateCcw,
   ScanLine,
   ShieldCheck,
@@ -27,6 +28,7 @@ import {
   MODEL_INFO,
   MODEL_MB,
   RUNTIME_MB,
+  applyBackgroundColor,
   checkSupport,
   inspectImage,
   isModelCached,
@@ -38,13 +40,25 @@ import {
 import { cn, downloadBlob, formatBytes, sanitizeBaseName } from '../lib/format'
 
 type ViewMode = 'before' | 'after'
-type Backdrop = 'transparent' | 'white' | 'blue'
+type BackgroundType = 'transparent' | 'color'
+type DownloadFormat = 'png' | 'jpeg'
 
-const BACKDROP_STYLE: Record<Backdrop, string | undefined> = {
-  transparent: undefined,
-  white: '#f8fafc',
-  blue: '#2563eb',
+interface ColorPreset {
+  id: string
+  name: string
+  hex: string
+  hint: string
 }
+
+const COLOR_PRESETS: ColorPreset[] = [
+  { id: 'red', name: 'Merah Pas Foto', hex: '#db1514', hint: 'Tahun Ganjil (KTP/SSCASN)' },
+  { id: 'blue', name: 'Biru Pas Foto', hex: '#0066cc', hint: 'Tahun Genap (KTP/SSCASN)' },
+  { id: 'white', name: 'Putih Bersih', hex: '#ffffff', hint: 'Formal / Visa / E-commerce' },
+  { id: 'gray', name: 'Abu-abu', hex: '#64748b', hint: 'Studio Portrait' },
+  { id: 'black', name: 'Hitam', hex: '#0f172a', hint: 'Dark Aesthetic' },
+  { id: 'yellow', name: 'Kuning', hex: '#eab308', hint: 'Ijazah / Kampus' },
+  { id: 'green', name: 'Hijau', hex: '#16a34a', hint: 'Dokumen Khusus' },
+]
 
 interface ProgressView {
   label: string
@@ -94,9 +108,12 @@ export function BackgroundRemover() {
   const [resultUrl, setResultUrl] = useState<string | null>(null)
   const [progress, setProgress] = useState<RemovalProgress | null>(null)
   const [busy, setBusy] = useState(false)
+  const [downloading, setDownloading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [view, setView] = useState<ViewMode>('after')
-  const [backdrop, setBackdrop] = useState<Backdrop>('transparent')
+  const [bgType, setBgType] = useState<BackgroundType>('transparent')
+  const [selectedColor, setSelectedColor] = useState<string>('#db1514')
+  const [downloadFormat, setDownloadFormat] = useState<DownloadFormat>('png')
   const [unsupported] = useState<string | null>(() => checkSupport())
   const [modelCached, setModelCached] = useState<boolean | null>(null)
 
@@ -153,6 +170,7 @@ export function BackgroundRemover() {
     setSrcUrl(null)
     setImage(null)
     setError(null)
+    setBgType('transparent')
   }
 
   async function pickFile(file: File) {
@@ -208,7 +226,6 @@ export function BackgroundRemover() {
       setResult(output)
       setResultUrl(url)
       setView('after')
-      setBackdrop('transparent')
       setModelCached(true)
     } catch (removalError) {
       if (!mountedRef.current) return
@@ -226,9 +243,41 @@ export function BackgroundRemover() {
     }
   }
 
-  function download() {
-    if (!result || !image) return
-    downloadBlob(result.blob, `${sanitizeBaseName(image.file.name)}-no-bg.png`)
+  async function download() {
+    if (!result || !image || downloading) return
+    setDownloading(true)
+    setError(null)
+
+    try {
+      const baseName = sanitizeBaseName(image.file.name)
+      if (bgType === 'transparent') {
+        downloadBlob(result.blob, `${baseName}-no-bg.png`)
+      } else {
+        const ext = downloadFormat === 'jpeg' ? 'jpg' : 'png'
+        const matched = COLOR_PRESETS.find(
+          (p) => p.hex.toLowerCase() === selectedColor.toLowerCase(),
+        )
+        const colorTag = matched ? matched.id : selectedColor.replace('#', '')
+
+        const finalBlob = await applyBackgroundColor(
+          result.blob,
+          result.width,
+          result.height,
+          selectedColor,
+          downloadFormat,
+          0.95,
+        )
+        downloadBlob(finalBlob, `${baseName}-bg-${colorTag}.${ext}`)
+      }
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Gagal mengunduh gambar dengan latar warna.',
+      )
+    } finally {
+      setDownloading(false)
+    }
   }
 
   const progressView = describeProgress(progress)
@@ -290,7 +339,7 @@ export function BackgroundRemover() {
               <div className="flex flex-wrap items-center justify-center gap-2 px-4 py-3">
                 <span className="inline-flex items-center gap-1.5 font-mono text-[9.5px] text-ink-500">
                   <Lock size={9} className="text-accent/60" />
-                  0 byte diunggah · PNG transparan
+                  0 byte diunggah · Pilihan transparan / ganti warna pas foto
                 </span>
                 {modelCached === false ? (
                   <span className="inline-flex items-center gap-1.5 font-mono text-[9.5px] text-warn/80">
@@ -317,8 +366,7 @@ export function BackgroundRemover() {
                 <p className="mt-1 text-[11px] leading-relaxed text-ink-400">
                   Satu model {MODEL_INFO.name} mencari objek paling menonjol di foto —
                   orang, produk, makanan, atau hewan — lalu memisahkannya dari latar.
-                  Kualitas tepi lebih rapi, tetapi prosesnya lebih berat daripada model
-                  320×320.
+                  Dapat disimpan transparan atau diganti warna latar (merah, biru, putih, dll).
                 </p>
               </div>
             </div>
@@ -331,14 +379,14 @@ export function BackgroundRemover() {
                   text: 'Inferensi memakai ONNX Runtime Web di tab ini. Tidak ada API, API key, atau server.',
                 },
                 {
-                  icon: HardDrive,
-                  title: `Unduhan pertama ±${FIRST_LOAD_MB} MB`,
-                  text: `Runtime ±${RUNTIME_MB} MB + bobot ±${MODEL_MB} MB disimpan browser, lalu dipakai ulang tanpa internet.`,
+                  icon: Palette,
+                  title: 'Ganti Warna Latar Nyata',
+                  text: 'Ganti background ke merah/biru pas foto, putih formal, atau warna apa pun — tersimpan permanen di file.',
                 },
                 {
                   icon: Download,
-                  title: 'Hasil PNG transparan',
-                  text: 'Channel alpha asli dipertahankan, siap dipakai untuk desain atau katalog.',
+                  title: 'Hasil PNG atau JPG',
+                  text: 'Bisa diunduh sebagai PNG transparan atau gambar dengan warna latar baru.',
                 },
               ].map((item) => {
                 const Icon = item.icon
@@ -396,11 +444,12 @@ export function BackgroundRemover() {
 
             <div
               className={cn(
-                'relative grid min-h-[280px] place-items-center p-3 sm:p-4',
-                view === 'after' && backdrop === 'transparent' && 'checkerboard',
+                'relative grid min-h-[300px] place-items-center p-3 transition-colors sm:p-4',
+                view === 'after' && bgType === 'transparent' && 'checkerboard',
               )}
               style={{
-                backgroundColor: view === 'after' ? BACKDROP_STYLE[backdrop] : undefined,
+                backgroundColor:
+                  view === 'after' && bgType === 'color' ? selectedColor : undefined,
               }}
             >
               <img
@@ -413,35 +462,76 @@ export function BackgroundRemover() {
                 className="max-h-[520px] w-auto max-w-full rounded-lg object-contain shadow-[0_18px_50px_-30px_rgba(0,0,0,0.9)]"
               />
               <span className="pointer-events-none absolute top-3 left-3 rounded-md border border-white/15 bg-ink-950/70 px-1.5 py-0.5 font-mono text-[9px] tracking-wide text-ink-300 uppercase backdrop-blur">
-                {view === 'after' ? 'After · transparent' : 'Before · original'}
+                {view === 'after'
+                  ? bgType === 'transparent'
+                    ? 'After · transparan'
+                    : `After · ${selectedColor}`
+                  : 'Before · original'}
               </span>
             </div>
 
             <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-white/[0.055] px-4 py-3">
               {view === 'after' ? (
-                <div className="flex items-center gap-2">
-                  <span className="eyebrow">Preview</span>
-                  <Segmented
-                    compact
-                    value={backdrop}
-                    onChange={setBackdrop}
-                    options={[
-                      { value: 'transparent', label: 'Transparan' },
-                      { value: 'white', label: 'Putih' },
-                      { value: 'blue', label: 'Biru' },
-                    ]}
-                    className="w-[230px]"
-                  />
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-[10px] font-medium text-ink-400">Pilihan Latar:</span>
+                  <div className="flex items-center gap-1 rounded-lg border border-white/[0.07] bg-ink-950/60 p-1">
+                    <button
+                      type="button"
+                      onClick={() => setBgType('transparent')}
+                      className={cn(
+                        'flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium transition',
+                        bgType === 'transparent'
+                          ? 'bg-accent text-ink-950 shadow-sm font-semibold'
+                          : 'text-ink-300 hover:bg-white/[0.05]',
+                      )}
+                    >
+                      <ImageOff size={11} />
+                      Transparan
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setBgType('color')}
+                      className={cn(
+                        'flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium transition',
+                        bgType === 'color'
+                          ? 'bg-accent text-ink-950 shadow-sm font-semibold'
+                          : 'text-ink-300 hover:bg-white/[0.05]',
+                      )}
+                    >
+                      <Palette size={11} />
+                      Warna
+                    </button>
+                  </div>
+                  {bgType === 'color' ? (
+                    <div className="flex items-center gap-1">
+                      {COLOR_PRESETS.slice(0, 4).map((p) => (
+                        <button
+                          key={p.id}
+                          type="button"
+                          onClick={() => setSelectedColor(p.hex)}
+                          title={`${p.name} (${p.hint})`}
+                          className={cn(
+                            'size-5 rounded-full border transition hover:scale-110',
+                            selectedColor.toLowerCase() === p.hex.toLowerCase()
+                              ? 'border-white ring-2 ring-accent'
+                              : 'border-white/20',
+                          )}
+                          style={{ backgroundColor: p.hex }}
+                        />
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
               ) : (
                 <span className="text-[10px] text-ink-500">
-                  Gambar asli — pilih <span className="text-ink-300">After</span> untuk
-                  melihat hasil transparan.
+                  Gambar asli — pilih <span className="text-ink-300">After</span> untuk melihat hasil.
                 </span>
               )}
-              <span className="inline-flex items-center gap-1.5 text-[10px] text-ink-500">
-                <Lock size={10} className="text-accent/60" />
-                Warna preview tidak ikut tersimpan di PNG
+              <span className="inline-flex items-center gap-1.5 text-[10px] font-medium text-accent">
+                <CheckCircle2 size={11} className="text-accent" />
+                {bgType === 'transparent'
+                  ? 'Latar transparan tersimpan di file PNG'
+                  : `Warna latar (${selectedColor}) tersimpan di file ${downloadFormat.toUpperCase()}`}
               </span>
             </footer>
           </section>
@@ -454,36 +544,167 @@ export function BackgroundRemover() {
               <div>
                 <h2 className="text-[13px] font-semibold text-white">Siap diunduh</h2>
                 <p className="mt-1 text-[11px] leading-relaxed text-ink-400">
-                  PNG dengan latar transparan, resolusi penuh {result.width}×{result.height}px.
+                  Resolusi penuh {result.width}×{result.height}px dengan pilihan latar belakang.
                 </p>
               </div>
+            </div>
+
+            {/* Panel Pilihan Background */}
+            <div className="space-y-3.5 rounded-xl border border-white/[0.08] bg-ink-950/60 p-3.5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5">
+                  <Palette size={13} className="text-accent" />
+                  <h3 className="text-[11.5px] font-semibold text-white">Latar Belakang</h3>
+                </div>
+                <span className="text-[9.5px] text-accent font-medium">Bisa diunduh</span>
+              </div>
+
+              <Segmented
+                compact
+                value={bgType}
+                onChange={setBgType}
+                options={[
+                  { value: 'transparent', label: 'Transparan', icon: ImageOff },
+                  { value: 'color', label: 'Warna Solid', icon: Palette },
+                ]}
+              />
+
+              {bgType === 'color' ? (
+                <div className="space-y-3 pt-1 animate-fade-in">
+                  <div>
+                    <span className="eyebrow">Warna Populer / Pas Foto</span>
+                    <div className="mt-1.5 grid grid-cols-4 gap-1.5 sm:grid-cols-7">
+                      {COLOR_PRESETS.map((preset) => {
+                        const active =
+                          selectedColor.toLowerCase() === preset.hex.toLowerCase()
+                        return (
+                          <button
+                            key={preset.id}
+                            type="button"
+                            onClick={() => setSelectedColor(preset.hex)}
+                            title={`${preset.name} - ${preset.hint}`}
+                            className={cn(
+                              'group relative flex flex-col items-center justify-center rounded-lg border p-1.5 transition',
+                              active
+                                ? 'border-accent bg-accent/15 ring-2 ring-accent/50 shadow-sm'
+                                : 'border-white/[0.08] bg-ink-900/60 hover:border-white/20 hover:bg-white/[0.04]',
+                            )}
+                          >
+                            <span
+                              className="size-5 rounded-full border border-black/30 shadow-sm transition group-hover:scale-110"
+                              style={{ backgroundColor: preset.hex }}
+                            />
+                            <span className="mt-1 max-w-[46px] truncate text-[8.5px] font-medium text-ink-300">
+                              {preset.name.split(' ')[0]}
+                            </span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2.5 rounded-xl border border-white/[0.07] bg-ink-900/60 p-2">
+                    <label
+                      htmlFor="bg-color-picker"
+                      className="relative size-8 shrink-0 cursor-pointer overflow-hidden rounded-lg border border-white/20 shadow-sm transition hover:scale-105"
+                      style={{ backgroundColor: selectedColor }}
+                      title="Klik untuk memilih warna kustom"
+                    >
+                      <input
+                        id="bg-color-picker"
+                        type="color"
+                        value={selectedColor}
+                        onChange={(e) => setSelectedColor(e.target.value)}
+                        className="absolute -top-4 -left-4 size-16 cursor-pointer opacity-0"
+                        aria-label="Pilih warna kustom"
+                      />
+                    </label>
+                    <div className="min-w-0 flex-1">
+                      <label
+                        htmlFor="bg-hex-input"
+                        className="block text-[9.5px] font-medium text-ink-400"
+                      >
+                        Kode HEX Warna
+                      </label>
+                      <input
+                        id="bg-hex-input"
+                        type="text"
+                        value={selectedColor}
+                        onChange={(e) => {
+                          const val = e.target.value
+                          setSelectedColor(val.startsWith('#') ? val : `#${val}`)
+                        }}
+                        placeholder="#000000"
+                        maxLength={7}
+                        className="mt-0.5 w-full bg-transparent font-mono text-[11px] text-white focus:outline-none"
+                      />
+                    </div>
+                    <span className="rounded-md border border-white/[0.06] bg-white/[0.02] px-2 py-1 text-[9px] text-ink-300">
+                      {COLOR_PRESETS.find(
+                        (p) => p.hex.toLowerCase() === selectedColor.toLowerCase(),
+                      )?.name ?? 'Kustom'}
+                    </span>
+                  </div>
+
+                  <div className="space-y-1.5 pt-1">
+                    <div className="flex items-center justify-between">
+                      <span className="eyebrow">Format File Unduhan</span>
+                      <span className="text-[9px] text-ink-500">
+                        {downloadFormat === 'jpeg' ? 'Ramah SSCASN/BKN' : 'Lossless'}
+                      </span>
+                    </div>
+                    <Segmented
+                      compact
+                      value={downloadFormat}
+                      onChange={setDownloadFormat}
+                      options={[
+                        { value: 'png', label: 'PNG', hint: 'Kualitas Tinggi' },
+                        { value: 'jpeg', label: 'JPG', hint: 'Ukuran Pas' },
+                      ]}
+                    />
+                  </div>
+                </div>
+              ) : (
+                <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-2.5 text-[10px] leading-relaxed text-ink-400">
+                  Latar transparan tanpa warna. Format unduhan otomatis <strong>PNG</strong> agar channel alpha tetap utuh.
+                </div>
+              )}
             </div>
 
             <div className="grid grid-cols-2 gap-2">
               <div className="stat">
-                <p className="text-[9.5px] tracking-wide text-ink-500 uppercase">Asli</p>
+                <p className="text-[9.5px] tracking-wide text-ink-500 uppercase">Resolusi</p>
                 <p className="mt-1 truncate font-mono text-[12px] text-ink-200">
-                  {formatBytes(image.file.size)}
+                  {result.width}×{result.height}
                 </p>
               </div>
               <div className="stat">
-                <p className="text-[9.5px] tracking-wide text-ink-500 uppercase">PNG</p>
+                <p className="text-[9.5px] tracking-wide text-ink-500 uppercase">Waktu AI</p>
                 <p className="mt-1 truncate font-mono text-[12px] text-accent">
-                  {formatBytes(result.blob.size)}
-                </p>
-              </div>
-              <div className="stat col-span-2">
-                <p className="text-[9.5px] tracking-wide text-ink-500 uppercase">File</p>
-                <p className="mt-1 truncate text-[11px] text-ink-200">{image.file.name}</p>
-                <p className="mt-0.5 font-mono text-[9.5px] text-ink-500">
-                  {image.formatLabel} → PNG · {(result.durationMs / 1000).toFixed(1)}s
+                  {(result.durationMs / 1000).toFixed(1)}s
                 </p>
               </div>
             </div>
 
-            <button type="button" className="btn-primary w-full" onClick={download}>
-              <Download size={14} />
-              Download PNG
+            <button
+              type="button"
+              className="btn-primary w-full"
+              onClick={() => void download()}
+              disabled={downloading}
+            >
+              {downloading ? (
+                <>
+                  <Loader2 size={14} className="animate-spin" />
+                  Menyiapkan file…
+                </>
+              ) : (
+                <>
+                  <Download size={14} />
+                  {bgType === 'transparent'
+                    ? 'Download PNG Transparan'
+                    : `Download ${downloadFormat.toUpperCase()} (${COLOR_PRESETS.find((p) => p.hex.toLowerCase() === selectedColor.toLowerCase())?.name ?? selectedColor})`}
+                </>
+              )}
             </button>
 
             <div className="space-y-2">
@@ -491,7 +712,7 @@ export function BackgroundRemover() {
                 type="button"
                 className="btn-ghost w-full"
                 onClick={clearAll}
-                disabled={busy}
+                disabled={busy || downloading}
               >
                 <ScanLine size={14} />
                 Remove Another Background
@@ -499,7 +720,7 @@ export function BackgroundRemover() {
               <div className="grid grid-cols-2 gap-2">
                 <ImageSourcePicker
                   accept={ACCEPT_ATTRIBUTE}
-                  disabled={busy}
+                  disabled={busy || downloading}
                   onFiles={(files) => {
                     const file = files[0]
                     if (file) void pickFile(file)
@@ -510,7 +731,7 @@ export function BackgroundRemover() {
                       type="button"
                       className="btn-ghost !px-3 !py-2 !text-[11.5px]"
                       onClick={openPicker}
-                      disabled={busy}
+                      disabled={busy || downloading}
                     >
                       <ImagePlus size={13} />
                       Ganti gambar
@@ -521,7 +742,7 @@ export function BackgroundRemover() {
                   type="button"
                   className="btn-ghost !px-3 !py-2 !text-[11.5px]"
                   onClick={clearAll}
-                  disabled={busy}
+                  disabled={busy || downloading}
                 >
                   <RotateCcw size={13} />
                   Reset
@@ -530,7 +751,7 @@ export function BackgroundRemover() {
             </div>
 
             <p className="border-t border-white/[0.055] pt-3 font-mono text-[9px] leading-relaxed text-ink-500">
-              {MODEL_INFO.name} · {MODEL_INFO.license} · diproses lokal, tanpa upload
+              {MODEL_INFO.name} · {MODEL_INFO.license} · diproses lokal di browser, tanpa upload
             </p>
           </aside>
         </div>
@@ -607,8 +828,8 @@ export function BackgroundRemover() {
             <div>
               <span className="eyebrow">Langkah berikutnya</span>
               <p className="mt-1.5 text-[11px] leading-relaxed text-ink-400">
-                Objek paling menonjol akan dipisahkan, latar dihapus, dan hasilnya bisa
-                diunduh sebagai PNG transparan.
+                Objek utama dipisahkan secara otomatis. Setelah selesai, Anda dapat memilih
+                apakah ingin hasil transparan atau diganti dengan warna latar (merah, biru pas foto, putih, dll).
               </p>
             </div>
 
@@ -681,12 +902,11 @@ export function BackgroundRemover() {
 
             <p className="border-t border-white/[0.055] pt-3 text-[10px] leading-relaxed text-ink-500">
               Tips: satu subjek yang jelas memberi hasil paling rapi. Model 512×512 ini
-              butuh ±10–15 detik per gambar di desktop (lebih lama di ponsel).
+              berjalan lokal tanpa server.
             </p>
           </aside>
         </div>
       )}
-
     </div>
   )
 }
