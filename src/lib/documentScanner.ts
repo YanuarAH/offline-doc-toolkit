@@ -549,11 +549,45 @@ export function cropToCorners(
 }
 
 export function rotateCanvas(canvas: HTMLCanvasElement): HTMLCanvasElement {
+  return rotateCanvasByQuarterTurns(canvas, 1)
+}
+
+export function rotateCanvasCounterClockwise(
+  canvas: HTMLCanvasElement,
+): HTMLCanvasElement {
+  return rotateCanvasByQuarterTurns(canvas, -1)
+}
+
+export function rotateCanvasByAngle(
+  canvas: HTMLCanvasElement,
+  degrees: number,
+): HTMLCanvasElement {
+  if (!Number.isFinite(degrees) || degrees === 0) return copyCanvas(canvas)
+
+  const radians = (degrees * Math.PI) / 180
+  const sine = Math.abs(Math.sin(radians))
+  const cosine = Math.abs(Math.cos(radians))
+  const output = createCanvas(
+    Math.max(1, Math.ceil(canvas.width * cosine + canvas.height * sine)),
+    Math.max(1, Math.ceil(canvas.width * sine + canvas.height * cosine)),
+  )
+  const ctx = output.getContext('2d')
+  if (!ctx) throw new Error('Canvas 2D tidak tersedia di browser ini.')
+  ctx.translate(output.width / 2, output.height / 2)
+  ctx.rotate(radians)
+  ctx.drawImage(canvas, -canvas.width / 2, -canvas.height / 2)
+  return output
+}
+
+function rotateCanvasByQuarterTurns(
+  canvas: HTMLCanvasElement,
+  quarterTurns: 1 | -1,
+): HTMLCanvasElement {
   const output = createCanvas(canvas.height, canvas.width)
   const ctx = output.getContext('2d')
   if (!ctx) throw new Error('Canvas 2D tidak tersedia di browser ini.')
   ctx.translate(output.width / 2, output.height / 2)
-  ctx.rotate(Math.PI / 2)
+  ctx.rotate((Math.PI / 2) * quarterTurns)
   ctx.drawImage(canvas, -canvas.width / 2, -canvas.height / 2)
   return output
 }
@@ -569,6 +603,20 @@ export function rotateCornersClockwise(
     topRight: [oldH - corners.topLeft[1], corners.topLeft[0]],
     bottomRight: [oldH - corners.topRight[1], corners.topRight[0]],
     bottomLeft: [oldH - corners.bottomRight[1], corners.bottomRight[0]],
+  }
+}
+
+export function rotateCornersCounterClockwise(
+  corners: EdgePoints,
+  oldW: number,
+  _oldH: number,
+): EdgePoints {
+  // 90deg counter-clockwise: newX = y, newY = oldW - x
+  return {
+    topLeft: [corners.topRight[1], oldW - corners.topRight[0]],
+    topRight: [corners.bottomRight[1], oldW - corners.bottomRight[0]],
+    bottomRight: [corners.bottomLeft[1], oldW - corners.bottomLeft[0]],
+    bottomLeft: [corners.topLeft[1], oldW - corners.topLeft[0]],
   }
 }
 

@@ -59,12 +59,11 @@ foto KTP dan PDF bertanda tangan tetap berada di memori perangkat Anda.
 Quadscan menjadi satu-satunya detektor otomatis. Empat sudut dipakai hanya
 ketika model mengembalikan koordinat. Jika Quadscan tidak mendeteksi dokumen
 atau gagal dimuat, scanner menyediakan batas awal seluruh gambar yang dapat
-disesuaikan manual tanpa menjalankan detektor lain. Koreksi
-perspektif dan filter dapat disesuaikan per halaman. Pilih beberapa foto
-sekaligus atau tambahkan dokumen setelahnya, lalu ekspor semua halaman yang
-telah diproses sesuai urutan unggah sebagai satu PDF. Ukuran halaman dapat
-dipilih sebagai A4, F4, atau Fit; A4/F4 mendukung orientasi portrait atau
-landscape dan margin yang dapat diatur.
+disesuaikan manual tanpa menjalankan detektor lain. Koreksi perspektif, rotasi 90° ke kiri/kanan, dan filter dapat disesuaikan per
+halaman. Pilih beberapa foto sekaligus atau tambahkan dokumen setelahnya, lalu
+ekspor semua halaman yang telah diproses sesuai urutan unggah sebagai satu PDF.
+PDF scanner otomatis mengikuti rasio setiap hasil scan agar seluruh gambar tetap
+terlihat tanpa pengaturan ukuran kertas atau margin tambahan.
 
 Model LCNet (±4,5 MiB) dibundel Vite langsung dari paket Quadscan, sehingga URL
 model ikut di-hash dan disertakan dalam build deployment. Lisensi

@@ -24,22 +24,21 @@ import {
 import { Quadscan, type CornerPoints } from 'quadscan'
 import quadscanModelUrl from 'quadscan/models/lcnet?url'
 import { Dropzone } from '../components/Dropzone'
-import { Segmented, SliderField } from '../components/Controls'
+import { SliderField } from '../components/Controls'
 import {
   adjustImage,
   cropToCorners,
   createFallbackDocumentCorners,
   loadImageToCanvas,
+  rotateCanvasByAngle,
   rotateCanvas,
+  rotateCanvasCounterClockwise,
   rotateCornersClockwise,
+  rotateCornersCounterClockwise,
   type EdgePoints,
   type ScannerControls,
 } from '../lib/documentScanner'
-import {
-  buildScannedPagesPdf,
-  type PdfOrientation,
-  type PdfPaperSize,
-} from '../lib/imagesToPdf'
+import { buildScannedPagesPdf } from '../lib/imagesToPdf'
 import {
   compactDay,
   downloadBlob,
@@ -55,6 +54,7 @@ interface ScanPage {
   autoDetected: boolean
   detectionMessage: string | null
   controls: ScannerControls
+  rotation: number
   mode: 'adjust' | 'preview'
 }
 
@@ -454,9 +454,6 @@ export function DocumentScanner() {
   const [busyMessage, setBusyMessage] = useState('')
   const [exporting, setExporting] = useState(false)
   const [exportProgress, setExportProgress] = useState(0)
-  const [paper, setPaper] = useState<PdfPaperSize>('a4')
-  const [orientation, setOrientation] = useState<PdfOrientation>('portrait')
-  const [margin, setMargin] = useState(12)
   const [error, setError] = useState<string | null>(null)
   const requestIdRef = useRef(0)
   const quadscanRef = useRef<Quadscan | null>(null)
@@ -538,6 +535,7 @@ export function DocumentScanner() {
           autoDetected: detection.corners !== null,
           detectionMessage: detection.corners !== null ? null : detection.message,
           controls: DEFAULT_CONTROLS,
+          rotation: 0,
           mode: cropped && processed ? 'preview' : 'adjust',
         })
       } catch (loadError) {
@@ -586,6 +584,7 @@ export function DocumentScanner() {
                 detectionMessage: detected ? null : quadscanResult.message,
                 cropped,
                 processed,
+                rotation: 0,
               }
             : page,
         ),
@@ -608,7 +607,10 @@ export function DocumentScanner() {
         // ignore
       }
     }
-    const processed = cropped ? adjustImage(cropped, newControls) : undefined
+    const rotated = cropped
+      ? rotateCanvasByAngle(cropped, scan.rotation)
+      : undefined
+    const processed = rotated ? adjustImage(rotated, newControls) : undefined
     setPages((current) =>
       current.map((page, index) =>
         index === activeIndex
@@ -635,7 +637,12 @@ export function DocumentScanner() {
             // keep
           }
         }
-        const processed = cropped ? adjustImage(cropped, scan.controls) : page.processed
+        const rotated = cropped
+          ? rotateCanvasByAngle(cropped, scan.rotation)
+          : undefined
+        const processed = rotated
+          ? adjustImage(rotated, scan.controls)
+          : page.processed
         return {
           ...page,
           controls: { ...scan.controls },
@@ -646,15 +653,25 @@ export function DocumentScanner() {
     )
   }
 
-  function handleRotate(mode: 'adjust' | 'preview') {
+  function handleRotate(mode: 'adjust' | 'preview', direction: 'clockwise' | 'counterClockwise') {
     if (!scan) return
     if (mode === 'adjust') {
-      const rotated = rotateCanvas(scan.original)
-      const corners = rotateCornersClockwise(
-        scan.corners,
-        scan.original.width,
-        scan.original.height,
-      )
+      const rotated =
+        direction === 'clockwise'
+          ? rotateCanvas(scan.original)
+          : rotateCanvasCounterClockwise(scan.original)
+      const corners =
+        direction === 'clockwise'
+          ? rotateCornersClockwise(
+              scan.corners,
+              scan.original.width,
+              scan.original.height,
+            )
+          : rotateCornersCounterClockwise(
+              scan.corners,
+              scan.original.width,
+              scan.original.height,
+            )
       let cropped: HTMLCanvasElement | undefined
       let processed: HTMLCanvasElement | undefined
       try {
@@ -672,13 +689,17 @@ export function DocumentScanner() {
                 corners,
                 cropped,
                 processed,
+                rotation: 0,
               }
             : page,
         ),
       )
     } else {
       const base = scan.cropped ?? cropToCorners(scan.original, scan.corners)
-      const rotatedCropped = rotateCanvas(base)
+      const rotatedCropped =
+        direction === 'clockwise'
+          ? rotateCanvas(base)
+          : rotateCanvasCounterClockwise(base)
       const processed = adjustImage(rotatedCropped, scan.controls)
       setPages((current) =>
         current.map((page, index) =>
@@ -687,6 +708,7 @@ export function DocumentScanner() {
                 ...page,
                 cropped: rotatedCropped,
                 processed,
+                rotation: 0,
               }
             : page,
         ),
@@ -726,7 +748,8 @@ export function DocumentScanner() {
     if (!scan) return
     try {
       const cropped = cropToCorners(scan.original, scan.corners)
-      const processed = adjustImage(cropped, scan.controls)
+      const rotated = rotateCanvasByAngle(cropped, scan.rotation)
+      const processed = adjustImage(rotated, scan.controls)
       setPages((current) =>
         current.map((page, index) =>
           index === activeIndex
@@ -757,17 +780,18 @@ export function DocumentScanner() {
           finalCanvases.push(page.processed)
         } else {
           const cropped = page.cropped ?? cropToCorners(page.original, page.corners)
-          const processed = adjustImage(cropped, page.controls)
+          const rotated = rotateCanvasByAngle(cropped, page.rotation)
+          const processed = adjustImage(rotated, page.controls)
           finalCanvases.push(processed)
         }
       }
       const bytes = await buildScannedPagesPdf(
         finalCanvases,
-        { paper, orientation, marginMm: margin },
+        { paper: 'fit', orientation: 'portrait', marginMm: 0 },
         (done, total) => setExportProgress(Math.round((done / total) * 100)),
       )
       const blob = new Blob([new Uint8Array(bytes)], { type: 'application/pdf' })
-      downloadBlob(blob, `localkit-scan-${paper}-${compactDay(new Date())}.pdf`)
+      downloadBlob(blob, `localkit-scan-${compactDay(new Date())}.pdf`)
     } catch (exportError) {
       setError(errorMessage(exportError))
     } finally {
@@ -799,6 +823,23 @@ export function DocumentScanner() {
         index === activeIndex ? { ...page, ...updates } : page,
       ),
     )
+  }
+
+  function handleRotationChange(rotation: number) {
+    if (!scan) return
+    const base = scan.cropped ?? cropToCorners(scan.original, scan.corners)
+    const rotated = rotateCanvasByAngle(base, rotation)
+    const processed = adjustImage(rotated, scan.controls)
+    updateCurrentPage({
+      rotation,
+      processed,
+    })
+  }
+
+  function adjustRotation(delta: number) {
+    if (!scan) return
+    const nextRotation = Math.max(-180, Math.min(180, scan.rotation + delta))
+    handleRotationChange(nextRotation)
   }
 
   return (
@@ -899,12 +940,22 @@ export function DocumentScanner() {
               <button
                 type="button"
                 className="btn-ghost !px-2.5 !py-1.5 !text-[10px]"
-                onClick={() => handleRotate(scan.mode)}
+                onClick={() => handleRotate(scan.mode, 'counterClockwise')}
+                disabled={busy || exporting}
+                title="Putar 90 derajat berlawanan arah jarum jam"
+              >
+                <RotateCcw size={11} />
+                Kiri 90°
+              </button>
+              <button
+                type="button"
+                className="btn-ghost !px-2.5 !py-1.5 !text-[10px]"
+                onClick={() => handleRotate(scan.mode, 'clockwise')}
                 disabled={busy || exporting}
                 title="Putar 90 derajat searah jarum jam"
               >
                 <RotateCw size={11} />
-                Putar 90°
+                Kanan 90°
               </button>
               <button
                 type="button"
@@ -1058,6 +1109,85 @@ export function DocumentScanner() {
                       )
                     })}
                   </div>
+                  <div className="rounded-xl border border-white/[0.06] bg-ink-950/70 p-3">
+                    <div className="mb-2 flex items-center justify-between gap-3">
+                      <span className="eyebrow">Atur sudut gambar</span>
+                      <span className="font-mono text-[10px] text-accent">
+                        {scan.rotation > 0 ? '+' : ''}
+                        {scan.rotation.toFixed(1)}°
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min={-180}
+                      max={180}
+                      step={0.5}
+                      value={scan.rotation}
+                      onChange={(event) =>
+                        handleRotationChange(Number(event.target.value))
+                      }
+                      disabled={exporting}
+                      className="h-8 w-full touch-pan-x accent-teal-300"
+                      aria-label="Sudut rotasi gambar"
+                    />
+                    <div className="mt-0.5 flex justify-between text-[9px] text-ink-600">
+                      <span>-180°</span>
+                      <span>-90°</span>
+                      <span>0°</span>
+                      <span>+90°</span>
+                      <span>+180°</span>
+                    </div>
+                    <div className="mt-3 grid grid-cols-4 gap-1.5">
+                      <button
+                        type="button"
+                        className="btn-ghost !min-h-9 !px-1 !py-1.5 !text-[10px]"
+                        onClick={() => adjustRotation(-90)}
+                        disabled={exporting}
+                      >
+                        <RotateCcw size={11} />
+                        -90°
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-ghost !min-h-9 !px-1 !py-1.5 !text-[10px]"
+                        onClick={() => adjustRotation(-5)}
+                        disabled={exporting}
+                      >
+                        -5°
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-ghost !min-h-9 !px-1 !py-1.5 !text-[10px]"
+                        onClick={() => adjustRotation(5)}
+                        disabled={exporting}
+                      >
+                        +5°
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-ghost !min-h-9 !px-1 !py-1.5 !text-[10px]"
+                        onClick={() => adjustRotation(90)}
+                        disabled={exporting}
+                      >
+                        <RotateCw size={11} />
+                        +90°
+                      </button>
+                    </div>
+                    <div className="mt-1.5 flex justify-center">
+                      <button
+                        type="button"
+                        className="min-h-9 px-3 text-[10px] text-ink-400 underline-offset-2 hover:text-accent hover:underline"
+                        onClick={() => handleRotationChange(0)}
+                        disabled={exporting || scan.rotation === 0}
+                      >
+                        Reset
+                      </button>
+                    </div>
+                    <p className="mt-2 text-[9px] text-ink-500">
+                      Geser slider atau gunakan tombol untuk meluruskan gambar. Hasilnya
+                      langsung berubah di pratinjau.
+                    </p>
+                  </div>
                 </>
               ) : null}
             </section>
@@ -1085,55 +1215,8 @@ export function DocumentScanner() {
               </section>
 
               <section className="panel space-y-3 p-4">
-                <h3 className="text-[11px] font-semibold text-white">Pengaturan PDF</h3>
-                <div className="space-y-2">
-                  <span className="eyebrow">Ukuran kertas</span>
-                  <Segmented
-                    compact
-                    value={paper}
-                    onChange={setPaper}
-                    options={[
-                      { value: 'a4', label: 'A4', hint: '210×297' },
-                      { value: 'f4', label: 'F4', hint: '210×330' },
-                      { value: 'fit', label: 'Fit', hint: 'Rasio foto' },
-                    ]}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <span className="eyebrow">Orientasi</span>
-                  <Segmented
-                    compact
-                    value={orientation}
-                    onChange={setOrientation}
-                    options={[
-                      { value: 'portrait', label: 'Portrait', hint: 'Tegak' },
-                      { value: 'landscape', label: 'Landscape', hint: 'Mendatar' },
-                    ]}
-                    className={
-                      paper === 'fit' ? 'pointer-events-none opacity-40' : undefined
-                    }
-                  />
-                  {paper === 'fit' ? (
-                    <p className="text-[9px] text-ink-500">
-                      Fit otomatis mengikuti rasio tiap halaman dokumen.
-                    </p>
-                  ) : null}
-                </div>
-                <SliderField
-                  label="Margin"
-                  value={margin}
-                  min={0}
-                  max={40}
-                  step={1}
-                  display={`${margin} mm`}
-                  onChange={setMargin}
-                  disabled={exporting}
-                />
                 <p className="text-[10px] leading-relaxed text-ink-400">
-                  {pages.length} halaman siap digabung menjadi satu berkas PDF.
-                </p>
-                <p className="text-[9px] text-ink-500">
-                  Format: {paper === 'fit' ? 'Fit' : `${paper.toUpperCase()} · ${orientation === 'portrait' ? 'Portrait' : 'Landscape'}`}
+                  {pages.length} halaman siap digabung menjadi PDF sesuai rasio hasil scan.
                 </p>
                 <button
                   type="button"
