@@ -836,12 +836,6 @@ export function DocumentScanner() {
     })
   }
 
-  function adjustRotation(delta: number) {
-    if (!scan) return
-    const nextRotation = Math.max(-180, Math.min(180, scan.rotation + delta))
-    handleRotationChange(nextRotation)
-  }
-
   return (
     <div className="animate-fade-up space-y-5">
       {error ? (
@@ -937,26 +931,6 @@ export function DocumentScanner() {
               </button>
             </div>
             <div className="flex items-center gap-2">
-              <button
-                type="button"
-                className="btn-ghost !px-2.5 !py-1.5 !text-[10px]"
-                onClick={() => handleRotate(scan.mode, 'counterClockwise')}
-                disabled={busy || exporting}
-                title="Putar 90 derajat berlawanan arah jarum jam"
-              >
-                <RotateCcw size={11} />
-                Kiri 90°
-              </button>
-              <button
-                type="button"
-                className="btn-ghost !px-2.5 !py-1.5 !text-[10px]"
-                onClick={() => handleRotate(scan.mode, 'clockwise')}
-                disabled={busy || exporting}
-                title="Putar 90 derajat searah jarum jam"
-              >
-                <RotateCw size={11} />
-                Kanan 90°
-              </button>
               <button
                 type="button"
                 className="btn-ghost !px-2.5 !py-1.5 !text-[10px]"
@@ -1110,82 +1084,38 @@ export function DocumentScanner() {
                     })}
                   </div>
                   <div className="rounded-xl border border-white/[0.06] bg-ink-950/70 p-3">
-                    <div className="mb-2 flex items-center justify-between gap-3">
-                      <span className="eyebrow">Atur sudut gambar</span>
-                      <span className="font-mono text-[10px] text-accent">
-                        {scan.rotation > 0 ? '+' : ''}
-                        {scan.rotation.toFixed(1)}°
-                      </span>
-                    </div>
-                    <input
-                      type="range"
-                      min={-180}
-                      max={180}
-                      step={0.5}
-                      value={scan.rotation}
-                      onChange={(event) =>
-                        handleRotationChange(Number(event.target.value))
-                      }
-                      disabled={exporting}
-                      className="h-8 w-full touch-pan-x accent-teal-300"
-                      aria-label="Sudut rotasi gambar"
-                    />
-                    <div className="mt-0.5 flex justify-between text-[9px] text-ink-600">
-                      <span>-180°</span>
-                      <span>-90°</span>
-                      <span>0°</span>
-                      <span>+90°</span>
-                      <span>+180°</span>
-                    </div>
-                    <div className="mt-3 grid grid-cols-4 gap-1.5">
+                    <p className="eyebrow mb-2">Rotasi gambar</p>
+                    <div className="grid grid-cols-3 gap-1.5">
                       <button
                         type="button"
-                        className="btn-ghost !min-h-9 !px-1 !py-1.5 !text-[10px]"
-                        onClick={() => adjustRotation(-90)}
+                        className="btn-ghost !min-h-10 !px-1 !py-1.5 !text-[10px]"
+                        onClick={() => handleRotate(scan.mode, 'counterClockwise')}
                         disabled={exporting}
                       >
                         <RotateCcw size={11} />
-                        -90°
+                        Putar kiri
                       </button>
                       <button
                         type="button"
-                        className="btn-ghost !min-h-9 !px-1 !py-1.5 !text-[10px]"
-                        onClick={() => adjustRotation(-5)}
-                        disabled={exporting}
-                      >
-                        -5°
-                      </button>
-                      <button
-                        type="button"
-                        className="btn-ghost !min-h-9 !px-1 !py-1.5 !text-[10px]"
-                        onClick={() => adjustRotation(5)}
-                        disabled={exporting}
-                      >
-                        +5°
-                      </button>
-                      <button
-                        type="button"
-                        className="btn-ghost !min-h-9 !px-1 !py-1.5 !text-[10px]"
-                        onClick={() => adjustRotation(90)}
-                        disabled={exporting}
-                      >
-                        <RotateCw size={11} />
-                        +90°
-                      </button>
-                    </div>
-                    <div className="mt-1.5 flex justify-center">
-                      <button
-                        type="button"
-                        className="min-h-9 px-3 text-[10px] text-ink-400 underline-offset-2 hover:text-accent hover:underline"
+                        className="btn-ghost !min-h-10 !px-1 !py-1.5 !text-[10px]"
                         onClick={() => handleRotationChange(0)}
                         disabled={exporting || scan.rotation === 0}
                       >
+                        <RotateCcw size={11} />
                         Reset
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-ghost !min-h-10 !px-1 !py-1.5 !text-[10px]"
+                        onClick={() => handleRotate(scan.mode, 'clockwise')}
+                        disabled={exporting}
+                      >
+                        <RotateCw size={11} />
+                        Putar kanan
                       </button>
                     </div>
                     <p className="mt-2 text-[9px] text-ink-500">
-                      Geser slider atau gunakan tombol untuk meluruskan gambar. Hasilnya
-                      langsung berubah di pratinjau.
+                      Gunakan tombol untuk memutar gambar 90° setiap kali ditekan.
                     </p>
                   </div>
                 </>
