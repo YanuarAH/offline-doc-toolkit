@@ -1,5 +1,10 @@
 import { Document, HeadingLevel, Packer, Paragraph, TextRun } from 'docx'
-import { openPdfDocument, destroyPdfDocument } from './pdfjs'
+import { createWorker } from 'tesseract.js'
+import {
+  destroyPdfDocument,
+  openPdfDocument,
+  renderPdfPage,
+} from './pdfjs'
 
 export interface PdfTextItem {
   str: string
@@ -30,6 +35,29 @@ export function groupPdfTextItems(
 ): PdfWordBlock[] {
   const usable = items.filter((item) => cleanText(item.str))
   if (usable.length === 0) return []
+
+  const xPositions = [...new Set(
+    usable.map((item) => item.transform[4] ?? 0).sort((a, b) => a - b),
+  )]
+  let largestGap = 0
+  let columnCut = 0
+  for (let index = 1; index < xPositions.length; index += 1) {
+    const gap = xPositions[index] - xPositions[index - 1]
+    if (gap > largestGap) {
+      largestGap = gap
+      columnCut = (xPositions[index] + xPositions[index - 1]) / 2
+    }
+  }
+  if (largestGap >= 80) {
+    const left = usable.filter((item) => (item.transform[4] ?? 0) < columnCut)
+    const right = usable.filter((item) => (item.transform[4] ?? 0) >= columnCut)
+    if (left.length > 0 && right.length > 0) {
+      return [
+        ...groupPdfTextItems(left, pageNumber),
+        ...groupPdfTextItems(right, pageNumber),
+      ]
+    }
+  }
 
   usable.sort((a, b) => {
     const ay = a.transform[5] ?? 0
@@ -166,14 +194,17 @@ export function groupPdfTextItems(
 
 export async function extractPdfForWord(
   bytes: Uint8Array,
-  onProgress?: (current: number, total: number) => void,
+  onProgress?: (current: number, total: number, label?: string) => void,
+  language: 'ind' | 'eng' | 'ind+eng' = 'ind+eng',
+  autoOcr = true,
 ): Promise<PdfWordBlock[]> {
   const document = await openPdfDocument(bytes)
   const blocks: PdfWordBlock[] = []
+  let ocrWorker: Awaited<ReturnType<typeof createWorker>> | null = null
 
   try {
     for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
-      onProgress?.(pageNumber, document.numPages)
+      onProgress?.(pageNumber, document.numPages, 'Mengekstrak teks')
       const page = await document.getPage(pageNumber)
       const content = await page.getTextContent()
       const items = content.items
@@ -193,9 +224,72 @@ export async function extractPdfForWord(
             fontName: 'fontName' in item ? String(item.fontName) : undefined,
           }]
         })
-      blocks.push(...groupPdfTextItems(items, pageNumber))
+      const textBlocks = groupPdfTextItems(items, pageNumber)
+      const textLength = textBlocks.reduce((sum, block) => sum + block.text.length, 0)
+
+      if (textLength >= 20) {
+        blocks.push(...textBlocks)
+        continue
+      }
+
+      if (!autoOcr) continue
+
+      onProgress?.(pageNumber, document.numPages, 'OCR halaman')
+      if (!ocrWorker) {
+        ocrWorker = await createWorker(language, undefined, {
+          workerPath: '/tesseract/worker.min.js',
+          langPath: '/tessdata',
+          corePath: '/tesseract/core/',
+          gzip: false,
+          workerBlobURL: false,
+          logger: (message) => {
+            if (message.status === 'recognizing text') {
+              onProgress?.(
+                pageNumber,
+                document.numPages,
+                `OCR ${Math.round((message.progress || 0) * 100)}%`,
+              )
+            }
+          },
+        })
+        await ocrWorker.setParameters({
+          preserve_interword_spaces: '1',
+          user_defined_dpi: '300',
+        })
+      }
+
+      const canvas = await renderPdfPage(page, { scale: 2.5 })
+      const result = await ocrWorker.recognize(canvas)
+      for (const block of result.data.blocks ?? []) {
+        for (const paragraph of block.paragraphs) {
+          for (const line of paragraph.lines) {
+            const text = line.text.trim()
+            if (!text) continue
+            const height = Math.max(
+              8,
+              line.bbox.y1 - line.bbox.y0,
+            )
+            blocks.push({
+              text,
+              kind:
+                height >= 28 && text.length < 180
+                  ? 'heading'
+                  : /^\s*(?:[-•*]|\d{1,3}[.)])\s+/.test(text)
+                    ? 'list'
+                    : 'paragraph',
+              page: pageNumber,
+              x: line.bbox.x0,
+              y: canvas.height - line.bbox.y1,
+              indent: line.bbox.x0 > 35 ? Math.round(line.bbox.x0 / 18) : 0,
+              fontSize: Math.round(height * 0.16 * 10) / 10,
+              bold: height >= 28,
+            })
+          }
+        }
+      }
     }
   } finally {
+    if (ocrWorker) await ocrWorker.terminate()
     await destroyPdfDocument(document)
   }
 

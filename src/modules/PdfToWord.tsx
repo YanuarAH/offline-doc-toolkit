@@ -7,6 +7,7 @@ import {
   Loader2,
   Trash2,
 } from 'lucide-react'
+import { Segmented } from '../components/Controls'
 import { Dropzone } from '../components/Dropzone'
 import {
   compactDay,
@@ -39,6 +40,9 @@ export function PdfToWord() {
   const [phase, setPhase] = useState<Phase>('idle')
   const [error, setError] = useState<string | null>(null)
   const [progress, setProgress] = useState({ current: 0, total: 0 })
+  const [progressLabel, setProgressLabel] = useState('Mengekstrak teks')
+  const [autoOcr, setAutoOcr] = useState(true)
+  const [ocrLanguage, setOcrLanguage] = useState<'ind+eng' | 'ind' | 'eng'>('ind+eng')
   const [result, setResult] = useState<{ blob: Blob; filename: string; blocks: number } | null>(null)
   const mountedRef = useRef(true)
   const jobRef = useRef(0)
@@ -100,9 +104,17 @@ export function PdfToWord() {
     setProgress({ current: 0, total: 0 })
 
     try {
-      const blocks: PdfWordBlock[] = await extractPdfForWord(pdf.bytes, (current, total) => {
-        if (mountedRef.current && job === jobRef.current) setProgress({ current, total })
-      })
+      const blocks: PdfWordBlock[] = await extractPdfForWord(
+        pdf.bytes,
+        (current, total, label) => {
+          if (mountedRef.current && job === jobRef.current) {
+            setProgress({ current, total })
+            if (label) setProgressLabel(label)
+          }
+        },
+        ocrLanguage,
+        autoOcr,
+      )
       if (!mountedRef.current || job !== jobRef.current) return
       if (blocks.length === 0) throw new Error('Tidak ada teks yang dapat diekstrak. PDF mungkin hanya berisi gambar.')
 
@@ -152,6 +164,39 @@ export function PdfToWord() {
               </button>
             </div>
 
+            <div className="mb-4 grid gap-3 rounded-xl border border-white/[0.07] bg-white/[0.018] p-3">
+              <label className="flex items-start gap-2.5 text-[11px] text-ink-300">
+                <input
+                  type="checkbox"
+                  checked={autoOcr}
+                  disabled={busy}
+                  onChange={(event) => setAutoOcr(event.target.checked)}
+                  className="mt-0.5 accent-accent"
+                />
+                <span>
+                  <span className="block font-semibold text-ink-100">OCR otomatis</span>
+                  <span className="mt-0.5 block text-[9.5px] leading-relaxed text-ink-500">
+                    Aktifkan untuk PDF hasil scan atau gambar.
+                  </span>
+                </span>
+              </label>
+              {autoOcr ? (
+                <>
+                  <p className="field-label">Bahasa OCR</p>
+                  <Segmented
+                    compact
+                    value={ocrLanguage}
+                    onChange={setOcrLanguage}
+                    options={[
+                      { value: 'ind+eng', label: 'Indonesia + English' },
+                      { value: 'ind', label: 'Indonesia' },
+                      { value: 'eng', label: 'English' },
+                    ]}
+                  />
+                </>
+              ) : null}
+            </div>
+
             {phase === 'extracting' ? (
               <div className="rounded-xl border border-accent/15 bg-accent/[0.035] p-4">
                 <div className="flex items-center gap-3">
@@ -160,8 +205,8 @@ export function PdfToWord() {
                     <p className="text-[12px] font-semibold text-ink-100">Mengekstrak teks PDF…</p>
                     <p className="mt-0.5 text-[10.5px] text-ink-500">
                       {progress.total > 0
-                        ? `Halaman ${progress.current} dari ${progress.total}`
-                        : 'Membaca dokumen'}
+                        ? `${progressLabel} · halaman ${progress.current} dari ${progress.total}`
+                        : progressLabel}
                     </p>
                   </div>
                 </div>

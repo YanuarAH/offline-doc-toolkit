@@ -44,6 +44,25 @@ describe('groupPdfTextItems', () => {
   it('returns no blocks for empty text', () => {
     expect(groupPdfTextItems([item('   ', 10, 100)], 1)).toEqual([])
   })
+
+  it('reads left column before right column', () => {
+    const blocks = groupPdfTextItems(
+      [
+        item('Kolom kanan', 300, 180),
+        item('Kolom kiri', 20, 180),
+        item('lanjutan kanan', 300, 150),
+        item('lanjutan kiri', 20, 150),
+      ],
+      1,
+    )
+
+    expect(blocks.map((block) => block.text)).toEqual([
+      'Kolom kiri',
+      'lanjutan kiri',
+      'Kolom kanan',
+      'lanjutan kanan',
+    ])
+  })
 })
 
 describe('createWordBlob', () => {
