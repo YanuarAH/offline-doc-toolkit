@@ -11,6 +11,7 @@
     "prebuild": "node scripts/copy-ghostscript.mjs && node scripts/copy-ai-assets.mjs && node scripts/copy-quadscan-assets.mjs",
     "postinstall": "node scripts/copy-ghostscript.mjs && node scripts/copy-ai-assets.mjs && node scripts/copy-quadscan-assets.mjs",
     "lint": "oxlint src",
+    "test": "vitest run",
     "preview": "vite preview",
     "model:fetch": "node scripts/copy-ai-assets.mjs --force-model"
   },
@@ -18,6 +19,7 @@
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@jspawn/ghostscript-wasm": "^0.0.2",
+    "docx": "^9.15.4",
     "jszip": "^3.10.2",
     "libheif-js": "^1.23.5",
     "lucide-react": "^1.61.0",
@@ -43,6 +45,7 @@
     "tailwindcss": "^4.3.3",
     "typescript": "~6.0.3",
     "vite": "^8.3.4",
-    "vite-plugin-pwa": "^2.0.0"
+    "vite-plugin-pwa": "^2.0.0",
+    "vitest": "^5.1.1"
   }
 }

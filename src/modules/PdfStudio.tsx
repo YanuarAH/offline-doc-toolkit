@@ -1,10 +1,11 @@
 import { useState } from 'react'
-import { Gauge, Layers } from 'lucide-react'
+import { FileOutput, Gauge, Layers } from 'lucide-react'
 import { cn } from '../lib/format'
 import { PdfOrganizer } from './PdfOrganizer'
 import { PdfCompressor } from './PdfCompressor'
+import { PdfToWord } from './PdfToWord'
 
-type PdfTab = 'organizer' | 'compress'
+type PdfTab = 'organizer' | 'compress' | 'word'
 
 const TABS = [
   {
@@ -19,6 +20,12 @@ const TABS = [
     hint: 'Ghostscript WASM · 3 tingkat',
     icon: Gauge,
   },
+  {
+    id: 'word' as const,
+    label: 'PDF ke Word',
+    hint: 'Ekstrak teks menjadi .docx',
+    icon: FileOutput,
+  },
 ]
 
 export function PdfStudio() {
@@ -26,7 +33,7 @@ export function PdfStudio() {
 
   return (
     <div className="space-y-5">
-      <div className="grid gap-2 sm:grid-cols-2 lg:max-w-[620px]">
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 lg:max-w-[860px]">
         {TABS.map((item) => {
           const Icon = item.icon
           const active = tab === item.id
@@ -72,7 +79,13 @@ export function PdfStudio() {
       </div>
 
       <div key={tab} className="animate-fade-in">
-        {tab === 'organizer' ? <PdfOrganizer /> : <PdfCompressor />}
+        {tab === 'organizer' ? (
+          <PdfOrganizer />
+        ) : tab === 'compress' ? (
+          <PdfCompressor />
+        ) : (
+          <PdfToWord />
+        )}
       </div>
     </div>
   )
