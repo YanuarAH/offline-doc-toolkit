@@ -20,9 +20,12 @@ describe('groupPdfTextItems', () => {
       1,
     )
 
-    expect(blocks).toEqual([
-      { text: 'Dokumen lokal aman.', kind: 'paragraph', page: 1 },
-    ])
+    expect(blocks).toHaveLength(1)
+    expect(blocks[0]).toMatchObject({
+      text: 'Dokumen lokal aman.',
+      kind: 'paragraph',
+      page: 1,
+    })
   })
 
   it('detects headings and numbered lists', () => {
