@@ -23,17 +23,55 @@ export interface PdfWordBlock {
   indent?: number
   fontSize?: number
   bold?: boolean
+  italic?: boolean
+  spans?: PdfWordSpan[]
+  alignment?: 'left' | 'center' | 'right' | 'justified'
+}
+
+export interface PdfWordSpan {
+  text: string
+  bold?: boolean
+  italic?: boolean
+  fontSize?: number
 }
 
 function cleanText(text: string): string {
   return text.replace(/\u00a0/g, ' ').replace(/[ \t]+/g, ' ').trim()
 }
 
+function indentUnits(left: number): number {
+  return left >= 24 ? Math.round(left / 7) : 0
+}
+
+function isPdfArtifact(text: string): boolean {
+  const clean = cleanText(text)
+  return (
+    /^library\.uns\.ac\.id$/i.test(clean) ||
+    /^digilib\.uns\.ac\.id$/i.test(clean) ||
+    /^chapter\s+\d+$/i.test(clean) ||
+    /^\d{1,3}$/.test(clean)
+  )
+}
+
+function containsGarbledText(blocks: PdfWordBlock[]): boolean {
+  return blocks.some((block) => {
+    const text = block.text.trim()
+    return (
+      text.length >= 8 &&
+      text.length <= 80 &&
+      /^[A-Za-z0-9]{8,}$/.test(text) &&
+      (text.match(/\d/g)?.length ?? 0) >= 3
+    )
+  })
+}
+
 export function groupPdfTextItems(
   items: PdfTextItem[],
   pageNumber: number,
 ): PdfWordBlock[] {
-  const usable = items.filter((item) => cleanText(item.str))
+  const usable = items.filter(
+    (item) => cleanText(item.str) && !isPdfArtifact(item.str),
+  )
   if (usable.length === 0) return []
 
   const xPositions = [...new Set(
@@ -97,6 +135,7 @@ export function groupPdfTextItems(
   for (const line of lines) {
     line.sort((a, b) => (a.transform[4] ?? 0) - (b.transform[4] ?? 0))
     let text = ''
+    const spans: PdfWordSpan[] = []
     let previousRight = 0
     const left = line[0]?.transform[4] ?? 0
     const lineY = line[0]?.transform[5] ?? 0
@@ -109,7 +148,7 @@ export function groupPdfTextItems(
       }),
     )
     const bold = line.some((item) =>
-      /(bold|black|semibold|demibold)/i.test(item.fontName || ''),
+      /(bold|black|semibold|demibold|(^|[^a-z])f4([^a-z]|$))/i.test(item.fontName || ''),
     )
 
     for (const item of line) {
@@ -128,8 +167,17 @@ export function groupPdfTextItems(
         !/^[,.;!?%)\]}]/.test(value)
       ) {
         text += ' '
+        spans.push({ text: ' ' })
       }
       text += value
+      const isItalic =
+        /(italic|oblique|(^|[^a-z])f7([^a-z]|$))/i.test(item.fontName || '')
+      spans.push({
+        text: value,
+        bold,
+        italic: isItalic,
+        fontSize: item.height || fontSize,
+      })
       previousRight = x + estimatedWidth
     }
 
@@ -138,10 +186,13 @@ export function groupPdfTextItems(
 
     const startsBullet = /^[•●▪◦]\s*/.test(text)
     const startsNumber = /^\s*(?:[-•*]|\d{1,3}[.)])\s+/.test(text)
+    const headingPattern =
+      /^(?:BAB\s+[IVXLCDM\d]+|CHAPTER\s+\d+|\d{1,2}\.\d+\s+.{2,80}|(?:Latar Belakang|Rumusan Masalah|Batasan Masalah|Tujuan Penelitian|Manfaat Penelitian|Metodologi Penelitian)\b)/i
     const isHeading =
-      fontSize > bodyHeight * 1.18 &&
-      text.length < 180 &&
-      (bold || fontSize > bodyHeight * 1.35)
+      headingPattern.test(text) ||
+      (fontSize > bodyHeight * 1.18 &&
+        text.length < 180 &&
+        (bold || fontSize > bodyHeight * 1.35))
     const kind =
       startsBullet || startsNumber
         ? 'list'
@@ -164,13 +215,22 @@ export function groupPdfTextItems(
       currentParagraph.kind === 'paragraph' &&
       lineGap > 0 &&
       lineGap < Math.max(previousLineHeight, maxLineHeight) * 1.85 &&
-      Math.abs((currentParagraph.indent ?? 0) - left) < 3 &&
+      (Math.abs((currentParagraph.indent ?? 0) - indentUnits(left)) <= 6 ||
+        (left >= 85 && left <= 125 && Math.abs((currentParagraph.indent ?? 0) - 12) <= 3)) &&
       text.length > 0
 
     if (shouldContinueParagraph && currentParagraph) {
       currentParagraph.text = `${currentParagraph.text} ${clean}`
+      currentParagraph.spans = [
+        ...(currentParagraph.spans ?? [
+          { text: currentParagraph.text, bold: currentParagraph.bold, italic: currentParagraph.italic },
+        ]),
+        { text: ' ' },
+        ...spans,
+      ]
+      if (spans.some((span) => span.italic)) currentParagraph.italic = true
     } else {
-      const indent = left >= 24 ? Math.round(left / 7) : 0
+      const indent = indentUnits(left)
       const block: PdfWordBlock = {
         text: clean,
         kind,
@@ -180,6 +240,8 @@ export function groupPdfTextItems(
         indent,
         fontSize: Math.round(fontSize * 10) / 10,
         bold,
+        italic: spans.some((span) => span.italic),
+        spans,
       }
       blocks.push(block)
       currentParagraph = kind === 'paragraph' ? block : null
@@ -226,8 +288,9 @@ export async function extractPdfForWord(
         })
       const textBlocks = groupPdfTextItems(items, pageNumber)
       const textLength = textBlocks.reduce((sum, block) => sum + block.text.length, 0)
+      const garbled = containsGarbledText(textBlocks)
 
-      if (textLength >= 20) {
+      if (textLength >= 20 && !garbled) {
         blocks.push(...textBlocks)
         continue
       }
@@ -300,12 +363,21 @@ export async function createWordBlob(
   blocks: PdfWordBlock[],
   title: string,
 ): Promise<Blob> {
-  const paragraphs: Paragraph[] = [
-    new Paragraph({
-      children: [new TextRun({ text: title, bold: true, size: 34 })],
-      spacing: { after: 300 },
-    }),
-  ]
+  const paragraphs: Paragraph[] = []
+  const first = blocks[0]
+  const alreadyHasDocumentHeading =
+    first?.kind === 'heading' &&
+    /^(?:BAB|CHAPTER|\d{1,2}\.)/i.test(first.text)
+
+  if (!alreadyHasDocumentHeading) {
+    paragraphs.push(
+      new Paragraph({
+        children: [new TextRun({ text: title, bold: true, size: 34 })],
+        alignment: 'center',
+        spacing: { after: 300 },
+      }),
+    )
+  }
 
   let previousPage = 0
   for (const block of blocks) {
@@ -325,6 +397,9 @@ export async function createWordBlob(
             }),
           ],
           heading: HeadingLevel.HEADING_2,
+          alignment: /^(?:BAB|CHAPTER|\d{1,2}\.)/i.test(block.text)
+            ? 'center'
+            : 'left',
           spacing: { before: 240, after: 120 },
         }),
       )
@@ -343,18 +418,31 @@ export async function createWordBlob(
         }),
       )
     } else {
+      const runs =
+        block.spans && block.spans.length > 0
+          ? block.spans.map((span) =>
+              new TextRun({
+                text: span.text,
+                bold: span.bold,
+                italics: span.italic,
+                size: span.fontSize ? Math.round(span.fontSize * 2) : undefined,
+              }),
+            )
+          : [
+              new TextRun({
+                text: block.text,
+                bold: block.bold,
+                italics: block.italic,
+                size: block.fontSize ? Math.round(block.fontSize * 2) : undefined,
+              }),
+            ]
       paragraphs.push(
         new Paragraph({
-          children: [
-            new TextRun({
-              text: block.text,
-              bold: block.bold,
-              size: block.fontSize ? Math.round(block.fontSize * 2) : undefined,
-            }),
-          ],
+          children: runs,
           indent: block.indent
-            ? { left: Math.max(0, block.indent) * 20 }
+            ? { left: Math.max(0, block.indent) * 20, firstLine: 420 }
             : undefined,
+          alignment: 'both',
           spacing: { after: 120, line: 276 },
         }),
       )
@@ -365,7 +453,19 @@ export async function createWordBlob(
     creator: 'LocalKit',
     title,
     description: 'Dikonversi secara lokal dari PDF dengan LocalKit.',
-    sections: [{ children: paragraphs }],
+    sections: [{
+      properties: {
+        page: {
+          margin: {
+            top: 720,
+            right: 720,
+            bottom: 720,
+            left: 720,
+          },
+        },
+      },
+      children: paragraphs,
+    }],
   })
 
   return Packer.toBlob(doc)

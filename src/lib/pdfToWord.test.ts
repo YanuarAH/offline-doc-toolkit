@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { createWordBlob, groupPdfTextItems, type PdfTextItem } from './pdfToWord'
+import fs from 'node:fs'
+import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs'
+import {
+  createWordBlob,
+  groupPdfTextItems,
+  type PdfTextItem,
+  type PdfWordBlock,
+} from './pdfToWord'
 
 function item(str: string, x: number, y: number, height = 12): PdfTextItem {
   return {
@@ -75,5 +82,52 @@ describe('createWordBlob', () => {
     expect(blob).toBeInstanceOf(Blob)
     expect(blob.type).toContain('application/vnd.openxmlformats-officedocument')
     expect(blob.size).toBeGreaterThan(100)
+  })
+
+  it('generates a comparable LocalKit DOCX for the sample PDF', async () => {
+    const pdfPath = 'contohpdftoword/BAB I (Firdaus, 2025).pdf'
+    const outputPath = 'contohpdftoword/BAB I (Firdaus, 2025)_LocalKit.docx'
+    if (!fs.existsSync(pdfPath)) return
+
+    const bytes = new Uint8Array(fs.readFileSync(pdfPath))
+    const loadingTask = pdfjs.getDocument({
+      data: bytes,
+      standardFontDataUrl: 'public/pdfjs/standard_fonts/',
+      cMapUrl: 'public/pdfjs/cmaps/',
+      cMapPacked: true,
+    })
+    const pdf = await loadingTask.promise
+    const blocks: PdfWordBlock[] = []
+
+    for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+      const page = await pdf.getPage(pageNumber)
+      const content = await page.getTextContent()
+      const items = content.items.flatMap((item) => {
+        if (!('str' in item) || typeof item.str !== 'string') return []
+        const textItem = item as unknown as {
+          str: string
+          transform: number[]
+          height: number
+          width: number
+          fontName: string
+        }
+        return [{
+          str: textItem.str,
+          transform: textItem.transform,
+          height: textItem.height,
+          width: textItem.width,
+          fontName: textItem.fontName,
+        }]
+      })
+      blocks.push(...groupPdfTextItems(items, pageNumber))
+    }
+
+    const blob = await createWordBlob(blocks, 'BAB I (Firdaus, 2025)')
+    const buffer = Buffer.from(await blob.arrayBuffer())
+    fs.writeFileSync(outputPath, buffer)
+    await loadingTask.destroy()
+
+    expect(blocks.length).toBeGreaterThan(20)
+    expect(buffer.byteLength).toBeGreaterThan(1000)
   })
 })
