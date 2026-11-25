@@ -92,8 +92,8 @@ export function Dropzone({
       }}
       onDrop={handleDrop}
       className={cn(
-        'group relative flex cursor-pointer flex-col items-center justify-center overflow-hidden rounded-xl border border-dashed text-center transition duration-200',
-        compact ? 'min-h-[112px] gap-2 px-5 py-5' : 'min-h-[340px] gap-4 px-6 py-10',
+        'group relative flex w-full cursor-pointer flex-col items-center justify-center overflow-hidden rounded-xl border border-dashed text-center transition duration-200',
+        compact ? 'h-[120px] gap-2 px-4 py-3' : 'h-[340px] gap-4 px-6 py-10',
         dragging
           ? 'border-accent/70 bg-accent/[0.06]'
           : 'border-white/[0.12] bg-white/[0.012] hover:border-accent/40 hover:bg-white/[0.025]',
@@ -125,7 +125,7 @@ export function Dropzone({
         )}
       </span>
 
-      <div className="relative space-y-1">
+      <div className="relative w-full max-w-[32rem] min-w-0 space-y-1">
         <p
           className={cn(
             'font-semibold tracking-tight text-ink-100',

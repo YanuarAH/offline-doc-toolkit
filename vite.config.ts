@@ -93,7 +93,7 @@ export default defineConfig({
       workbox: {
         // .mjs is the local pdf.js worker; fonts/cmaps/wasm render complex PDFs offline.
         globPatterns: [
-          '**/*.{js,css,html,ico,png,svg,mjs,wasm,ttf,pfb,bcmap,icc,traineddata}',
+          '**/*.{js,css,html,ico,png,svg,mjs,wasm,ttf,pfb,bcmap,icc}',
         ],
         // These are injected by the manifest and must not be duplicated by the glob.
         globIgnores: [

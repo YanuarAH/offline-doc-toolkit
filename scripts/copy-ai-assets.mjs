@@ -33,12 +33,24 @@ const ORT_FILES = [
   'ort-wasm-simd-threaded.jsep.wasm',
 ]
 
-const MODEL = {
-  repo: 'JONNYVERSE/birefnet-lite-512',
-  path: 'onnx/model.onnx',
-  target: 'public/models/birefnet512/model.onnx',
-  minBytes: 150_000_000,
-}
+const MODELS = [
+  {
+    name: 'BiRefNet-lite 512',
+    repo: 'JONNYVERSE/birefnet-lite-512',
+    path: 'onnx/model.onnx',
+    target: 'public/models/birefnet512/model.onnx',
+    minBytes: 150_000_000,
+    license: 'MIT',
+  },
+  {
+    name: 'DocLayout-YOLO DocStructBench',
+    repo: 'wybxc/DocLayout-YOLO-DocStructBench-onnx',
+    path: 'doclayout_yolo_docstructbench_imgsz1024.onnx',
+    target: 'public/models/doclayout-yolo/model.onnx',
+    minBytes: 20_000_000,
+    license: 'AGPL-3.0',
+  },
+]
 
 const ortTargetDir = resolve(root, 'public/ort')
 
@@ -86,39 +98,40 @@ function copyOrtRuntime() {
   }
 }
 
-async function fetchModel() {
-  const target = resolve(root, MODEL.target)
-  const present = existsSync(target) && statSync(target).size >= MODEL.minBytes && !forceModel
+async function fetchModel(model) {
+  const target = resolve(root, model.target)
+  const present = existsSync(target) && statSync(target).size >= model.minBytes && !forceModel
 
   if (present) {
-    console.log(`[ai] Model BiRefNet-lite 512 siap (${megabytes(statSync(target).size)}).`)
+    console.log(`[ai] Model ${model.name} siap (${megabytes(statSync(target).size)}).`)
     return
   }
 
   mkdirSync(dirname(target), { recursive: true })
-  const url = `https://huggingface.co/${MODEL.repo}/resolve/main/${MODEL.path}`
-  console.log(`[ai] Mengunduh ${MODEL.repo}/${MODEL.path} (±183 MB)…`)
+  const url = `https://huggingface.co/${model.repo}/resolve/main/${model.path}`
+  console.log(`[ai] Mengunduh ${model.repo}/${model.path}…`)
 
   try {
     const response = await fetch(url, { redirect: 'follow' })
     if (!response.ok || !response.body) throw new Error(`HTTP ${response.status}`)
     const buffer = Buffer.from(await response.arrayBuffer())
-    if (buffer.byteLength < MODEL.minBytes) {
+    if (buffer.byteLength < model.minBytes) {
       throw new Error(`file terlalu kecil (${megabytes(buffer.byteLength)})`)
     }
     const partial = `${target}.part`
     writeFileSync(partial, buffer)
     renameSync(partial, target)
-    console.log(`[ai] Model siap (${megabytes(buffer.byteLength)}, MIT).`)
+    console.log(`[ai] Model ${model.name} siap (${megabytes(buffer.byteLength)}, ${model.license}).`)
   } catch (error) {
     rmSync(`${target}.part`, { force: true })
     const reason = error instanceof Error ? error.message : String(error)
     console.warn(
-      `[ai] Gagal mengunduh model: ${reason}. Fitur Background Remover akan menampilkan ` +
-        'pesan "model tidak tersedia" sampai aset ini ada. Jalankan `npm run model:fetch` saat online.',
+      `[ai] Gagal mengunduh ${model.name}: ${reason}. Jalankan \`npm run model:fetch\` saat online.`,
     )
   }
 }
 
 copyOrtRuntime()
-await fetchModel()
+for (const model of MODELS) {
+  await fetchModel(model)
+}
