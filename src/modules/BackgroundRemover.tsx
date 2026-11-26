@@ -324,6 +324,7 @@ export function BackgroundRemover() {
             <div className="pointer-events-none absolute inset-0 grid-lines opacity-30" />
             <div className="relative">
               <Dropzone
+                stretch={false}
                 icon={ScanLine}
                 actionLabel="Pilih sumber gambar"
                 accept={ACCEPT_ATTRIBUTE}

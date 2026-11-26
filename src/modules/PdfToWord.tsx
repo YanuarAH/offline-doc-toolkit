@@ -160,11 +160,11 @@ export function PdfToWord() {
           ? 'grid gap-5 min-[1200px]:grid-cols-[minmax(0,1fr)_380px]'
           : 'grid gap-5 lg:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)]',
       )}>
-      <section className={cn('panel', pdf ? 'p-0' : 'relative overflow-hidden bg-noise p-2')}>
+      <section className={cn('panel', pdf ? 'p-0' : 'relative flex flex-col overflow-hidden bg-noise p-2')}>
         {!pdf ? (
           <>
             <div className="pointer-events-none absolute inset-0 grid-lines opacity-30" />
-            <div className="relative">
+            <div className="relative flex flex-1">
               <Dropzone
                 onFiles={(files) => void handlePdfFile(files[0])}
                 title="Jatuhkan PDF di sini"

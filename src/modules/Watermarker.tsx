@@ -224,9 +224,9 @@ export function Watermarker() {
     return (
       <div className="animate-fade-up space-y-5">
         <div className="grid gap-5 lg:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)]">
-          <div className="panel bg-noise relative overflow-hidden p-2">
+          <div className="panel bg-noise relative flex flex-col overflow-hidden p-2">
             <div className="pointer-events-none absolute inset-0 grid-lines opacity-30" />
-            <div className="relative">
+            <div className="relative flex flex-1">
               <Dropzone
                 onFiles={(files) => {
                   if (files[0]) void handleIncomingFile(files[0])
@@ -420,9 +420,12 @@ export function Watermarker() {
             <canvas
               ref={canvasRef}
               className={cn(
-                'max-h-[60vh] w-auto max-w-full rounded-lg bg-white/5 shadow-[0_24px_80px_-24px_rgba(0,0,0,.95)] ring-1 ring-white/10 transition-opacity',
+                'h-auto w-full rounded-lg bg-white/5 shadow-[0_24px_80px_-24px_rgba(0,0,0,.95)] ring-1 ring-white/10 transition-opacity',
                 loading && 'opacity-40',
               )}
+              style={{
+                maxWidth: `min(100%, ${(60 * doc.decoded.width) / doc.decoded.height}vh)`,
+              }}
             />
             {loading ? (
               <div className="absolute inset-0 grid place-items-center bg-ink-950/40">

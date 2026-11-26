@@ -12,6 +12,7 @@ interface DropzoneProps {
   multiple?: boolean
   icon?: LucideIcon
   compact?: boolean
+  stretch?: boolean
   busy?: boolean
   actionLabel?: string
 }
@@ -25,6 +26,7 @@ export function Dropzone({
   multiple = false,
   icon,
   compact = false,
+  stretch = true,
   busy = false,
   actionLabel,
 }: DropzoneProps) {
@@ -93,7 +95,11 @@ export function Dropzone({
       onDrop={handleDrop}
       className={cn(
         'group relative flex w-full cursor-pointer flex-col items-center justify-center overflow-hidden rounded-xl border border-dashed text-center transition duration-200',
-        compact ? 'h-[120px] gap-2 px-4 py-3' : 'h-[340px] gap-4 px-6 py-10',
+        compact
+          ? 'h-[120px] gap-2 px-4 py-3'
+          : stretch
+            ? 'h-full min-h-[340px] gap-4 px-6 py-10'
+            : 'h-[340px] gap-4 px-6 py-10',
         dragging
           ? 'border-accent/70 bg-accent/[0.06]'
           : 'border-white/[0.12] bg-white/[0.012] hover:border-accent/40 hover:bg-white/[0.025]',

@@ -526,9 +526,9 @@ export function PdfOrganizer() {
 
       {!hasContent ? (
         <div className="grid gap-5 lg:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)]">
-          <div className="panel bg-noise relative overflow-hidden p-2">
+          <div className="panel bg-noise relative flex flex-col overflow-hidden p-2">
             <div className="pointer-events-none absolute inset-0 grid-lines opacity-30" />
-            <div className="relative">
+            <div className="relative flex flex-1">
               <Dropzone
                 multiple
                 accept="application/pdf,.pdf"
